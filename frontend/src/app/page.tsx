@@ -337,9 +337,17 @@ function CommandCenterShell() {
     };
   }, [setActiveTab]);
 
-  // Force scroll to top on page load to override browser scroll restoration
+  // Force scroll to top on page load — disable browser scroll restoration entirely
   React.useEffect(() => {
+    // Tell the browser not to restore scroll position
+    if (window.history.scrollRestoration) {
+      window.history.scrollRestoration = 'manual';
+    }
+    // Scroll to top immediately and again after a tick to override Next.js restoration
     window.scrollTo(0, 0);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+    });
   }, []);
 
   const secAgent = state.agents.find((a) => a.id === 'sec');
