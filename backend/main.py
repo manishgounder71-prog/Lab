@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import uuid
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -138,14 +139,14 @@ class ExternalAlert(BaseModel):
     @classmethod
     def validate_severity(cls, v: str) -> str:
         allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
-        upper = v.upper()
+        upper = v.strip().upper()
         if upper not in allowed:
             raise ValueError(f"Severity must be one of {allowed}")
         return upper
 
 def create_dynamic_scenario(alert: ExternalAlert) -> ScenarioDefinition:
     # Generates a dynamic scenario based on the incoming alert parameters
-    scenario_id = f"INC-EXT-{datetime.datetime.now().strftime('%M%S')}"
+    scenario_id = f"INC-EXT-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     severity_str = alert.severity.title() if alert.severity else "Critical"
     
     # Define steps

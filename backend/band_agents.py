@@ -49,7 +49,7 @@ Respond in character as {role}. Be concise, authoritative, and direct (max 2-3 s
 
     if has_gemini and gemini_key:
         try:
-            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_key)
+            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_key, timeout=10.0)
             res = await llm.ainvoke(prompt)
             return res.content.strip()
         except Exception as e:
@@ -57,7 +57,7 @@ Respond in character as {role}. Be concise, authoritative, and direct (max 2-3 s
 
     if has_openai and openai_key:
         try:
-            llm = ChatOpenAI(model="gpt-4o-mini", api_key=openai_key)
+            llm = ChatOpenAI(model="gpt-4o-mini", api_key=openai_key, timeout=10.0, max_retries=1)
             res = await llm.ainvoke(prompt)
             return res.content.strip()
         except Exception as e:
