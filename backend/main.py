@@ -25,18 +25,32 @@ logger = logging.getLogger("main")
 
 app = FastAPI(title="Enterprise Crisis Command Center AI Backend")
 
-# Enable CORS for Next.js frontend calls
+# ── CORS Configuration ──────────────────────────────────────────────────────
+# Allow credentials ONLY when explicit origins are provided (not wildcard).
+# Set CORS_ORIGINS as comma-separated list, e.g.:
+#   "https://lab-lyart-theta.vercel.app,http://localhost:3000"
+# Defaults to wildcard (no credentials) for development flexibility.
+_cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if _cors_origins_env:
+    allowed_origins = [origin.strip() for origin in _cors_origins_env.split(",") if origin.strip()]
+    allow_creds = True
+    logger.info(f"CORS: allowing {allowed_origins} with credentials")
+else:
+    allowed_origins = ["*"]
+    allow_creds = False
+    logger.info("CORS: allowing all origins (no credentials) — set CORS_ORIGINS env var for explicit origins")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ── Rate Limiter ───────────────────────────────────────────────────────────
-# Rate limit string (e.g. "5/minute", "10/minute"). Set RATE_LIMIT env var to override.
-_rate_limit_str = os.getenv("RATE_LIMIT", "5/minute")
+# Rate limit string (e.g. "30/minute", "10/second"). Set RATE_LIMIT env var to override.
+_rate_limit_str = os.getenv("RATE_LIMIT", "30/minute")
 limiter = Limiter(key_func=get_remote_address)
 
 # Rate limiter setup
@@ -446,4 +460,5 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")

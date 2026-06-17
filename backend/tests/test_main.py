@@ -94,7 +94,7 @@ class TestHealthEndpoint:
         # Rate limit section
         assert "rate_limit" in data
         assert "configured_limit" in data["rate_limit"]
-        assert data["rate_limit"]["configured_limit"] == "5/minute"
+        assert data["rate_limit"]["configured_limit"] == "30/minute"
 
         # Auth section (does NOT expose the key)
         assert "auth" in data
