@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CRISIS COMMAND | Enterprise Crisis Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Sora:wght@600;700&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-container": "#757575",
+                    "inverse-surface": "#e2e2e2",
+                    "on-surface": "#e2e2e2",
+                    "tertiary": "#c8c6c5",
+                    "on-tertiary-fixed-variant": "#474746",
+                    "error": "#ffb4ab",
+                    "on-background": "#e2e2e2",
+                    "surface-container-low": "#1b1b1b",
+                    "inverse-primary": "#5e5e5e",
+                    "secondary-fixed": "#e5e2e1",
+                    "tertiary-fixed": "#e5e2e1",
+                    "tertiary-fixed-dim": "#c8c6c5",
+                    "on-tertiary-fixed": "#1c1b1b",
+                    "on-error-container": "#ffdad6",
+                    "surface-container-highest": "#353535",
+                    "outline": "#988e90",
+                    "on-surface-variant": "#cfc4c5",
+                    "on-tertiary": "#313030",
+                    "surface-bright": "#393939",
+                    "surface-dim": "#131313",
+                    "secondary-container": "#4a4949",
+                    "inverse-on-surface": "#303030",
+                    "primary": "#c6c6c6",
+                    "error-container": "#93000a",
+                    "secondary-fixed-dim": "#c8c6c5",
+                    "surface-tint": "#c6c6c6",
+                    "surface-container-high": "#2a2a2a",
+                    "secondary": "#c8c6c5",
+                    "on-secondary-fixed-variant": "#474646",
+                    "on-primary": "#303030",
+                    "primary-fixed-dim": "#c6c6c6",
+                    "background": "#131313",
+                    "surface": "#131313",
+                    "primary-container": "#000000",
+                    "on-tertiary-container": "#767575",
+                    "on-primary-fixed": "#1b1b1b",
+                    "surface-container-lowest": "#0e0e0e",
+                    "on-secondary-container": "#bab8b7",
+                    "on-secondary": "#313030",
+                    "tertiary-container": "#000000",
+                    "on-error": "#690005",
+                    "primary-fixed": "#e2e2e2",
+                    "outline-variant": "#4c4546",
+                    "surface-container": "#1f1f1f",
+                    "on-primary-fixed-variant": "#474747",
+                    "on-secondary-fixed": "#1c1b1b",
+                    "surface-variant": "#353535"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "stack-md": "16px",
+                    "base": "4px",
+                    "gutter": "16px",
+                    "stack-sm": "8px",
+                    "stack-lg": "32px",
+                    "container-margin": "32px"
+            },
+            "fontFamily": {
+                    "title-md": ["Inter"],
+                    "headline-lg-mobile": ["Sora"],
+                    "display-xl": ["Sora"],
+                    "headline-lg": ["Sora"],
+                    "label-caps": ["JetBrains Mono"],
+                    "body-base": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "data-mono": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "title-md": ["20px", {"lineHeight": "28px", "fontWeight": "500"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "display-xl": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                    "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                    "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-mono": ["14px", {"lineHeight": "20px", "letterSpacing": "0.02em", "fontWeight": "500"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #000000;
+            overflow-x: hidden;
+            color: #e2e2e2;
+        }
+        .dot-grid {
+            background-image: radial-gradient(rgba(198, 198, 198, 0.1) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+        .glass-panel {
+            background: rgba(26, 26, 26, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glow-cyan {
+            box-shadow: 0 0 15px rgba(198, 198, 198, 0.2);
+        }
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="font-body-base selection:bg-primary selection:text-on-primary">
+<!-- Background Layer -->
+<div class="fixed inset-0 z-0">
+
+<div class="absolute inset-0 dot-grid pointer-events-none"></div>
+</div>
+<!-- Navigation Shell (TopAppBar) -->
+<header class="fixed top-0 w-full z-50 bg-surface-dim/70 backdrop-blur-xl border-b border-outline-variant/30 h-16 flex justify-between items-center px-gutter shadow-[0_0_20px_rgba(198,198,198,0.1)]">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary text-2xl animate-pulse">hub</span>
+<span class="font-label-caps text-label-caps tracking-widest text-primary">CRISIS COMMAND</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="font-data-mono text-data-mono text-primary border-b-2 border-primary py-1" href="#">Global Status</a>
+<a class="font-data-mono text-data-mono text-on-surface-variant hover:text-primary transition-colors duration-300" href="#">Active Incidents</a>
+<a class="font-data-mono text-data-mono text-on-surface-variant hover:text-primary transition-colors duration-300" href="#">Neural Link</a>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary cursor-pointer active:scale-95 transition-transform">sensors</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="relative z-10 pt-32 pb-40 px-gutter container mx-auto">
+<!-- Hero Section -->
+<section class="flex flex-col items-center text-center max-w-5xl mx-auto mb-stack-lg">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-sm bg-primary/10 border border-primary/20 mb-8">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label-caps text-[10px] text-primary">SYSTEM STATUS: OPTIMAL</span>
+</div>
+<h1 class="font-display-xl text-display-xl md:text-[80px] leading-tight mb-stack-md text-on-surface">
+                Enterprise <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-outline">Crisis Command</span> Center
+            </h1>
+<p class="font-body-base text-on-surface-variant max-w-2xl mb-stack-lg text-lg">
+                AI Agents Collaborating Through Band to Resolve Critical Business Incidents. Automating high-stakes response protocols with millisecond precision.
+            </p>
+<div class="flex flex-col sm:flex-row gap-4">
+<button class="bg-primary text-on-primary px-8 py-4 rounded-sm font-label-caps text-label-caps hover:bg-white transition-all shadow-[0_0_20px_rgba(198,198,198,0.3)] active:scale-95">
+                    Launch War Room
+                </button>
+<button class="border border-outline-variant text-on-surface px-8 py-4 rounded-sm font-label-caps text-label-caps hover:border-primary transition-all active:scale-95">
+                    View Live Demo
+                </button>
+</div>
+</section>
+<!-- Floating Agent Cards (Bento/Asymmetric Layout) -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6 mt-12 relative">
+<!-- Agent 01: Security -->
+<div class="md:col-span-4 glass-panel p-6 rounded-lg animate-float" style="animation-delay: 0s;">
+<div class="flex justify-between items-start mb-6">
+<div class="p-3 bg-primary/10 rounded-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+<span class="font-label-caps text-[10px] text-primary opacity-60">AGENT_SEC_01</span>
+</div>
+<h3 class="font-title-md text-title-md mb-2">Security Sentinel</h3>
+<p class="font-body-sm text-on-surface-variant mb-6">Real-time threat detection and automated perimeter lockdown protocols.</p>
+<div class="space-y-3">
+<div class="h-1 bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-primary w-3/4 animate-pulse"></div>
+</div>
+<div class="flex justify-between text-[10px] font-data-mono text-primary/70">
+<span>SCANNING ENCRYPTED TRAFFIC</span>
+<span>74%</span>
+</div>
+</div>
+</div>
+<!-- Agent 02: Infrastructure -->
+<div class="md:col-span-4 glass-panel p-6 rounded-lg animate-float mt-12" style="animation-delay: 1.5s;">
+<div class="flex justify-between items-start mb-6">
+<div class="p-3 bg-primary/10 rounded-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">lan</span>
+</div>
+<span class="font-label-caps text-[10px] text-primary opacity-60">AGENT_INFRA_02</span>
+</div>
+<h3 class="font-title-md text-title-md mb-2">Infrastructure Core</h3>
+<p class="font-body-sm text-on-surface-variant mb-6">Load balancing and cloud resource reallocation during peak incidents.</p>
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-data-mono text-primary">AWS-US-EAST-1</span>
+<span class="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-data-mono text-primary">ACTIVE</span>
+</div>
+</div>
+<!-- Agent 03: Legal/Compliance -->
+<div class="md:col-span-4 glass-panel p-6 rounded-lg animate-float" style="animation-delay: 0.8s;">
+<div class="flex justify-between items-start mb-6">
+<div class="p-3 bg-primary/10 rounded-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">gavel</span>
+</div>
+<span class="font-label-caps text-[10px] text-primary opacity-60">AGENT_LEGAL_03</span>
+</div>
+<h3 class="font-title-md text-title-md mb-2">Compliance Shield</h3>
+<p class="font-body-sm text-on-surface-variant mb-6">Ensuring regulatory adherence and automated reporting during breach events.</p>
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+<span class="font-data-mono text-[11px] text-on-surface-variant">PARSING GDPR PROTOCOLS...</span>
+</div>
+</div>
+<!-- Data Visualizer Centerpiece -->
+<div class="md:col-span-12 glass-panel h-80 rounded-lg relative overflow-hidden flex items-center justify-center border-primary/20">
+<div class="absolute inset-0 opacity-20 pointer-events-none">
+<img alt="Cyber Grid" class="w-full h-full object-cover" data-alt="A highly complex digital grid visualization with floating data nodes and interconnecting cyan lines on a pitch black background. The style is futuristic and technical, reminiscent of a high-end cyber security dashboard. Glowing particles drift slowly through the 3D space, creating a sense of depth and activity within a vast server network environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYkywpcb7m3ioQuUXrSeoSKW099g-NT8fyRqNBKwwMjEh6qmpw_rRdyN4xl4c8HngGwfWvRGbGKWph0agpG8RD8V5oB3Bn64A9jha10hkmcXH2VXHlxD9AmfhZYvmaPciXA15bN9pfmA2jf075p4Tk-nIEtJ8nle_SpQZ0s_hRjYv6nabkf42wGmLTIRu0njJkwe_5dViYM0EG-osEBwrd4kzyDjm5Lpb1VBhGRXAR0DIZg4BzjX-n3BJ2mS4Y-yR9pZhIrfb7Vd4"/>
+</div>
+<div class="relative z-10 text-center">
+<div class="pulse-ring absolute inset-0 -m-8 border border-primary/30 rounded-full"></div>
+<div class="pulse-ring absolute inset-0 -m-16 border border-primary/10 rounded-full" style="animation-delay: 0.5s;"></div>
+<span class="material-symbols-outlined text-6xl text-primary mb-4 block" style="font-variation-settings: 'FILL' 1;">radar</span>
+<h2 class="font-label-caps text-label-caps tracking-[0.3em] text-primary">LIVE COLLABORATIVE FEED</h2>
+<p class="font-data-mono text-[10px] text-on-surface-variant mt-2">AGENT BANDWIDTH: 4.8 TB/S | LATENCY: 0.4MS</p>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Floating HUD) -->
+<nav class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-surface-container-highest/60 backdrop-blur-2xl rounded-full border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.8)] flex justify-around items-center px-4 py-2">
+<button class="bg-primary/20 text-primary shadow-[0_0_15px_rgba(198,198,198,0.4)] rounded-full p-3 active:scale-90 duration-200">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-white/5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">security</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-white/5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">psychology</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-white/5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">radar</span>
+</button>
+<button class="text-on-surface-variant p-3 hover:bg-white/5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</nav>
+<!-- Interaction Script -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const navButtons = document.querySelectorAll('nav button');
+            navButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navButtons.forEach(b => {
+                        b.classList.remove('bg-primary/20', 'text-primary', 'shadow-[0_0_15px_rgba(198,198,198,0.4)]');
+                        b.classList.add('text-on-surface-variant');
+                        const icon = b.querySelector('.material-symbols-outlined');
+                        if(icon) icon.style.fontVariationSettings = "'FILL' 0";
+                    });
+                    btn.classList.add('bg-primary/20', 'text-primary', 'shadow-[0_0_15px_rgba(198,198,198,0.4)]');
+                    btn.classList.remove('text-on-surface-variant');
+                    const activeIcon = btn.querySelector('.material-symbols-outlined');
+                    if(activeIcon) activeIcon.style.fontVariationSettings = "'FILL' 1";
+                });
+            });
+        });
+    </script>
+</body></html>

@@ -1,0 +1,383 @@
+/* Optimized font loading with font-display: swap for better perceived performance */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import "tailwindcss";
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Performance optimizations ────────────────────────────────────────── */
+/* Deferred rendering for off-screen sections */
+.section-container {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 2000px;
+  contain: layout style paint;
+}
+
+/* GPU layer promotion for animated elements */
+.gpu-layer {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Animations reduced for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Optimize scrollbar rendering */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+:root {
+  --background: #000000;
+  --foreground: #e2e2e2;
+  --color-primary: #c6c6c6;
+  --color-on-primary: #303030;
+  --color-error: #ffb4ab;
+  --color-on-surface-variant: #cfc4c5;
+  --color-surface-dim: #131313;
+  --color-surface-container: #1f1f1f;
+  --color-surface-container-highest: #353535;
+  --color-outline-variant: #4c4546;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.dot-grid {
+  background-image: radial-gradient(rgba(198, 198, 198, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.glass-panel {
+  background: rgba(26, 26, 26, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Glass panel with reduced blur when backdrop-filter is expensive */
+@supports not ((-webkit-backdrop-filter: blur(12px)) or (backdrop-filter: blur(12px))) {
+  .glass-panel {
+    background: rgba(26, 26, 26, 0.85);
+  }
+}
+
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(198, 198, 198, 0.15);
+}
+
+.glow-error {
+  box-shadow: 0 0 20px rgba(255, 180, 171, 0.2);
+  border: 1px solid rgba(255, 180, 171, 0.3) !important;
+}
+
+.scan-line {
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(198, 198, 198, 0.15), transparent);
+  position: absolute;
+  top: 0;
+  animation: scan 6s linear infinite;
+  pointer-events: none;
+  will-change: top, opacity;
+}
+
+@keyframes scan {
+  0% { top: 0; opacity: 0; }
+  10% { opacity: 0.8; }
+  90% { opacity: 0.8; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.pulse-ring {
+  animation: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.4; }
+  50% { transform: scale(1.05); opacity: 0.7; }
+  100% { transform: scale(0.95); opacity: 0.4; }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+/* Material Symbols configuration */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Working Agent Card animations */
+.agent-card-working {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.5s ease-in-out;
+}
+
+.agent-card-working.state-thinking {
+  animation: border-pulse-thinking 3s infinite ease-in-out;
+  background: rgba(35, 30, 25, 0.75) !important;
+}
+
+.agent-card-working.state-active {
+  animation: border-pulse-active 3s infinite ease-in-out;
+  background: rgba(25, 35, 33, 0.75) !important;
+}
+
+.agent-card-working.state-sleeping {
+  animation: border-pulse-sleeping 3.5s infinite ease-in-out;
+  background: rgba(15, 30, 28, 0.65) !important;
+}
+
+.agent-card-working.state-delegating {
+  animation: border-pulse-delegating 3s infinite ease-in-out;
+  background: rgba(33, 25, 38, 0.75) !important;
+}
+
+@keyframes border-pulse-thinking {
+  0%, 100% { border-color: rgba(233, 161, 59, 0.15); box-shadow: 0 0 15px rgba(233, 161, 59, 0.05); }
+  50% { border-color: rgba(233, 161, 59, 0.55); box-shadow: 0 0 25px rgba(233, 161, 59, 0.15); }
+}
+
+@keyframes border-pulse-active {
+  0%, 100% { border-color: rgba(0, 255, 204, 0.15); box-shadow: 0 0 15px rgba(0, 255, 204, 0.05); }
+  50% { border-color: rgba(0, 255, 204, 0.55); box-shadow: 0 0 25px rgba(0, 255, 204, 0.15); }
+}
+
+@keyframes border-pulse-sleeping {
+  0%, 100% { border-color: rgba(0, 255, 204, 0.12); box-shadow: 0 0 15px rgba(0, 255, 204, 0.04); }
+  50% { border-color: rgba(0, 255, 204, 0.35); box-shadow: 0 0 20px rgba(0, 255, 204, 0.10); }
+}
+
+@keyframes border-pulse-delegating {
+  0%, 100% { border-color: rgba(181, 95, 230, 0.15); box-shadow: 0 0 15px rgba(181, 95, 230, 0.05); }
+  50% { border-color: rgba(181, 95, 230, 0.55); box-shadow: 0 0 25px rgba(181, 95, 230, 0.15); }
+}
+
+/* Horizontal scan line overlay */
+.agent-scanner-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  animation: agent-scan 2.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.agent-scanner-line.state-thinking {
+  background: linear-gradient(180deg, rgba(233, 161, 59, 0.5) 0%, rgba(233, 161, 59, 0.05) 50%, transparent 100%);
+  box-shadow: 0 -2px 6px rgba(233, 161, 59, 0.25);
+}
+
+.agent-scanner-line.state-active {
+  background: linear-gradient(180deg, rgba(0, 255, 204, 0.5) 0%, rgba(0, 255, 204, 0.05) 50%, transparent 100%);
+  box-shadow: 0 -2px 6px rgba(0, 255, 204, 0.25);
+}
+
+.agent-scanner-line.state-sleeping {
+  background: linear-gradient(180deg, rgba(0, 255, 204, 0.3) 0%, rgba(0, 255, 204, 0.03) 50%, transparent 100%);
+  box-shadow: 0 -2px 6px rgba(0, 255, 204, 0.15);
+}
+
+.agent-scanner-line.state-delegating {
+  background: linear-gradient(180deg, rgba(181, 95, 230, 0.5) 0%, rgba(181, 95, 230, 0.05) 50%, transparent 100%);
+  box-shadow: 0 -2px 6px rgba(181, 95, 230, 0.25);
+}
+
+@keyframes agent-scan {
+  0% { top: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* Glowing status indicator dot with ripple */
+.status-pulse-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  position: relative;
+}
+
+.status-pulse-dot.thinking { background-color: #e9a13b; }
+.status-pulse-dot.active { background-color: #00ffcc; }
+.status-pulse-dot.sleeping { background-color: #00ffcc; opacity: 0.85; }
+.status-pulse-dot.delegating { background-color: #b55fe6; }
+.status-pulse-dot.idle { background-color: #737373; }
+
+.status-pulse-dot::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  transform: scale(1);
+}
+
+.status-pulse-dot.thinking::after {
+  border: 1px solid #e9a13b;
+  animation: status-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.status-pulse-dot.active::after {
+  border: 1px solid #00ffcc;
+  animation: status-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.status-pulse-dot.sleeping::after {
+  border: 1px solid #00ffcc;
+  animation: status-ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.status-pulse-dot.delegating::after {
+  border: 1px solid #b55fe6;
+  animation: status-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes status-ping {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(4.5); opacity: 0; }
+}
+
+/* Premium active agent glows */
+.glow-thinking {
+  box-shadow: 0 0 20px rgba(233, 161, 59, 0.25), inset 0 0 8px rgba(233, 161, 59, 0.05) !important;
+}
+
+.glow-active {
+  box-shadow: 0 0 20px rgba(0, 255, 204, 0.25), inset 0 0 8px rgba(0, 255, 204, 0.05) !important;
+}
+
+.glow-delegating {
+  box-shadow: 0 0 20px rgba(181, 95, 230, 0.25), inset 0 0 8px rgba(181, 95, 230, 0.05) !important;
+}
+
+/* Active workflow connector dash translation animation */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.cable-flow-active {
+  stroke-dasharray: 6, 6;
+  animation: flow-dash 1s linear infinite;
+}
+
+/* Vignette radial overlay gradient */
+.canvas-vignette {
+  background: radial-gradient(circle, transparent 50%, rgba(0, 0, 0, 0.75) 100%);
+  pointer-events: none;
+}
+
+/* Cable hover highlights */
+.cable-highlight {
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 6px rgba(0, 255, 204, 0.6)) drop-shadow(0 0 2px rgba(0, 255, 204, 0.4));
+  opacity: 1 !important;
+}
+
+/* Port pulsing glowing animation */
+.port-pulse {
+  animation: port-glow 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes port-glow {
+  0% {
+    transform: translateY(-50%) scale(1);
+    box-shadow: 0 0 4px currentColor;
+  }
+  100% {
+    transform: translateY(-50%) scale(1.4);
+    box-shadow: 0 0 10px currentColor;
+  }
+}
+
+/* Processing progress bar scanner */
+.progress-bar-fill {
+  width: 0%;
+  height: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: progress-fill 2s infinite linear;
+}
+
+.progress-bar-fill.state-thinking {
+  background: linear-gradient(90deg, #e9a13b, #f3c27a, #e9a13b);
+  box-shadow: 0 0 4px #e9a13b;
+}
+
+.progress-bar-fill.state-active {
+  background: linear-gradient(90deg, #00ffcc, #80ffe5, #00ffcc);
+  box-shadow: 0 0 4px #00ffcc;
+}
+
+.progress-bar-fill.state-sleeping {
+  background: linear-gradient(90deg, #00ffcc, #80ffe5, #00ffcc);
+  box-shadow: 0 0 3px #00ffcc;
+  opacity: 0.75;
+}
+
+.progress-bar-fill.state-delegating {
+  background: linear-gradient(90deg, #b55fe6, #d59df2, #b55fe6);
+  box-shadow: 0 0 4px #b55fe6;
+}
+
+@keyframes progress-fill {
+  0% { width: 0%; left: 0%; }
+  50% { width: 45%; }
+  100% { width: 100%; left: 100%; }
+}
+
