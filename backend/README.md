@@ -61,9 +61,28 @@ This registers the adapters live on the platform. Any messages sent in the activ
 
 ---
 
+## Load Testing
+
+A Locust load test suite is provided to validate the system handles concurrent users and scenarios:
+
+```bash
+# Web UI (open http://localhost:8089 in browser)
+locust -f locustfile.py --host http://localhost:8000
+
+# Headless (CI) — 10 concurrent users, 5/sec spawn, 90s run
+locust -f locustfile.py --host http://localhost:8000 \
+    --headless -u 10 -r 5 --run-time 90s \
+    --csv=load_test
+```
+
+Three user classes simulate different workloads:
+- **HealthCheckUser** — monitors health, root, and alerts endpoints (frequent, lightweight)
+- **SimulationUser** — triggers incident scenarios via the webhook (infrequent, heavy)
+- **MixedUser** — realistic mixed workload of monitoring + occasional triggers
+
 ## Testing
 
-Backend test execution is optimized using configurable step delays, running the entire 147-test suite in **under 2 seconds**:
+Backend test execution is optimized using configurable step delays, running the entire 184-test suite in **under 2 seconds**:
 ```bash
 uv run pytest
 ```

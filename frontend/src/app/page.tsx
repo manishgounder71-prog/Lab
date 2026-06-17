@@ -237,7 +237,8 @@ function CommandCenterShell() {
   // Capture real-time agent message changes
   React.useEffect(() => {
     if (state.scenarioState === 'INITIAL') {
-      setExchanges([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExchanges(prev => prev.length > 0 ? [] : prev);
       return;
     }
 
@@ -275,7 +276,7 @@ function CommandCenterShell() {
         if (alreadyExists) return prev;
 
         const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-        const sentiment = agent.status === 'ACTIVE' ? 'critical' : 'neutral';
+        const sentiment: 'critical' | 'neutral' | 'alert' | 'success' = agent.status === 'ACTIVE' ? 'critical' : 'neutral';
 
         return [
           ...prev,
@@ -285,7 +286,7 @@ function CommandCenterShell() {
             role: agent.role,
             message: agent.lastMessage,
             time: timestamp,
-            sentiment: sentiment as any
+            sentiment
           }
         ];
       });
@@ -739,7 +740,7 @@ function CommandCenterShell() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              {SCENARIOS_LIST.map((sc, idx) => (
+              {SCENARIOS_LIST.map((sc) => (
                 <div
                   key={sc.id}
                   className={`glass-panel p-6 rounded-xl relative group flex flex-col justify-between border border-[#4c4546]/30 overflow-hidden hover:border-[#c6c6c6]/50 transition-all duration-300 ${
@@ -1214,7 +1215,7 @@ function CommandCenterShell() {
                   const statusClass = agent.status.toLowerCase();
                   
                   // Dynamically map icons to agents based on key tags/id
-                  const getAgentIcon = (agentId: string, tags: string[], status: string) => {
+                  const getAgentIcon = (agentId: string) => {
                     const idLower = agentId.toLowerCase();
                     let IconComponent = Shield; // Fallback
                     let animationClass = "";
@@ -1281,7 +1282,7 @@ function CommandCenterShell() {
                           agent.status === 'DELEGATING' ? 'bg-[#b55fe6]/10 text-[#b55fe6]' :
                           'bg-white/5 text-[#c6c6c6]'
                         }`}>
-                          {getAgentIcon(agent.id, agent.tags, agent.status)}
+                          {getAgentIcon(agent.id)}
                         </div>
                         <div className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-sm ${
                           agent.status === 'THINKING' ? 'border-[#e9a13b]/30 bg-[#e9a13b]/10 text-[#e9a13b]' :

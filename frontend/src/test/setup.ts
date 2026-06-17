@@ -104,26 +104,27 @@ HTMLCanvasElement.prototype.getContext = vi.fn(
 
 // ── Global framer-motion mock ───────────────────────────────────────────────
 // This prevents 'whileHover' and other animation props from leaking to the DOM
+// The unused variables in destructuring are intentional — we strip motion props
 vi.mock("framer-motion", () => {
-  const Div = ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => {
+  const Div = ({ children, ...props }: { children?: React.ReactNode; [key: string]: unknown }) => {
     // Strip framer-motion specific props
     const {
-      initial,
-      animate,
-      exit,
-      whileHover,
-      whileTap,
-      whileInView,
-      whileFocus,
-      whileDrag,
-      viewport,
-      transition,
-      variants,
-      drag,
-      layout,
-      layoutId,
-      onAnimationStart,
-      onAnimationComplete,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      whileHover: _whileHover,
+      whileTap: _whileTap,
+      whileInView: _whileInView,
+      whileFocus: _whileFocus,
+      whileDrag: _whileDrag,
+      viewport: _viewport,
+      transition: _transition,
+      variants: _variants,
+      drag: _drag,
+      layout: _layout,
+      layoutId: _layoutId,
+      onAnimationStart: _onAnimationStart,
+      onAnimationComplete: _onAnimationComplete,
       style,
       ...rest
     } = props;
@@ -134,11 +135,11 @@ vi.mock("framer-motion", () => {
     motion: {
       div: Div,
       span: (props: Record<string, unknown>) => {
-        const { initial, animate, exit, whileHover, whileTap, whileInView, whileFocus, whileDrag, viewport, transition, variants, ...rest } = props;
+        const { initial: _i, animate: _a, exit: _e, whileHover: _wh, whileTap: _wt, whileInView: _wiv, whileFocus: _wf, whileDrag: _wd, viewport: _vp, transition: _tr, variants: _va, ...rest } = props;
         return React.createElement("span", rest);
       },
       button: (props: Record<string, unknown>) => {
-        const { initial, animate, exit, whileHover, whileTap, whileInView, whileFocus, whileDrag, viewport, transition, variants, ...rest } = props;
+        const { initial: _i, animate: _a, exit: _e, whileHover: _wh, whileTap: _wt, whileInView: _wiv, whileFocus: _wf, whileDrag: _wd, viewport: _vp, transition: _tr, variants: _va, ...rest } = props;
         return React.createElement("button", rest);
       },
     },

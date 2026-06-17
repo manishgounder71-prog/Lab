@@ -35,6 +35,17 @@ export interface AuditLog {
   details: string;
 }
 
+export interface AlertInfo {
+  id: string;
+  timestamp: string;
+  source: string;
+  event_type: string;
+  severity: string;
+  title: string;
+  description: string;
+  status: string;
+}
+
 export interface RegionalStatus {
   name: string;
   status: 'OPTIMAL' | 'DEGRADED' | 'CRITICAL';
@@ -71,7 +82,7 @@ export interface CommandCenterState {
   shutdownLabel?: string;
   isolationLabel?: string;
   simulationRunning: boolean;
-  receivedAlerts?: any[];
+  receivedAlerts?: AlertInfo[];
 }
 
 interface CommandCenterContextType {
@@ -82,7 +93,7 @@ interface CommandCenterContextType {
   startScenario: (scenarioId: string) => void;
   deployCountermeasures: (decision: 'SHUTDOWN' | 'ISOLATION') => void;
   resetDemo: () => void;
-  focusOnAlert: (alert: any) => void;
+  focusOnAlert: (alert: AlertInfo) => void;
 }
 
 const initialStates: CommandCenterState = {
@@ -804,8 +815,12 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
 
     function connect() {
       if (!isMounted) return;
-      console.log('Attempting WS connection to http://localhost:8000/ws...');
-      ws = new WebSocket('ws://localhost:8000/ws');
+      // Build WebSocket URL — append api_key query param if configured
+      const wsBase = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws';
+      const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+      const wsUrl = apiKey ? `${wsBase}?api_key=${encodeURIComponent(apiKey)}` : wsBase;
+      console.log('Attempting WS connection to', wsUrl.replace(/api_key=([^&]+)/, 'api_key=***'));
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         if (!isMounted) {
@@ -979,7 +994,7 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
     setState(initialStates);
   }, [socket]);
 
-  const focusOnAlert = useCallback((alert: any) => {
+  const focusOnAlert = useCallback((alert: AlertInfo) => {
     setState(prev => ({
       ...prev,
       simulationRunning: true,

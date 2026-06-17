@@ -67,8 +67,6 @@ describe("NeuralGraph", () => {
 
   it("should have correct grid class toggle based on default state", () => {
     const { container } = render(<NeuralGraph />, { wrapper });
-    // The canvas area should have dot-grid class by default (showGrid is true)
-    const canvasArea = container.querySelector(".flex-1.w-full.relative.overflow-hidden");
     // The dot-grid is applied when showGrid is true
     const gridArea = container.querySelector(".dot-grid");
     expect(gridArea).toBeInTheDocument();

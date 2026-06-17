@@ -58,7 +58,7 @@ class MockAgentTools:
 
 
 class ScenarioManager:
-    def __init__(self):
+    def __init__(self, persistence=None):
         self.active_connections: Set[WebSocket] = set()
         self.is_running = False
         self.current_step_index = -1
@@ -69,6 +69,33 @@ class ScenarioManager:
         self.decision_made = None
         self.step_delay = 3.5
         self.alerts_history: List[Dict[str, Any]] = []
+        self.persistence = persistence
+
+    async def restore_from_persistence(self):
+        """Restore manager state from Redis after a server restart."""
+        if not self.persistence or not self.persistence.is_available:
+            return
+
+        # Restore alert history
+        saved_alerts = await self.persistence.load_alerts()
+        if saved_alerts:
+            self.alerts_history = saved_alerts
+            logger.info(f"Restored {len(saved_alerts)} alerts from Redis")
+
+        # Restore active scenario state
+        scenario_id, state_payload, sim_data = await self.persistence.restore_state()
+        if scenario_id and state_payload:
+            self.active_scenario_id = scenario_id
+            self.current_state_payload = state_payload
+            self.scenario_state = state_payload.get("scenarioState", "INITIAL")
+            logger.info(f"Restored scenario {scenario_id} state from Redis (state={self.scenario_state})")
+
+        if sim_data:
+            self.current_step_index = sim_data.get("current_step_index", -1)
+            self.decision_made = sim_data.get("decision_made")
+            # Don't auto-resume the simulation loop — user must restart
+            self.is_running = False
+            self.current_state_payload["simulationRunning"] = False
 
 
     def _get_initial_state(self) -> Dict[str, Any]:
@@ -152,7 +179,30 @@ class ScenarioManager:
         self.current_state_payload = self._get_initial_state()
         self.current_state_payload["simulationRunning"] = True
         
+        # Persist the initial state immediately
+        asyncio.create_task(self._persist_state())
+        
         self.loop_task = asyncio.create_task(self._run_loop())
+
+    async def _persist_state(self):
+        """Persist current state & simulation progress to Redis."""
+        if not self.persistence or not self.persistence.is_available:
+            return
+        try:
+            sim_data = {
+                "current_step_index": self.current_step_index,
+                "scenario_state": self.scenario_state,
+                "is_running": self.is_running,
+                "decision_made": self.decision_made,
+                "active_scenario_id": self.active_scenario_id,
+            }
+            await self.persistence.save_full_state(
+                self.active_scenario_id,
+                self.current_state_payload,
+                sim_data,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist state: {e}")
 
     async def _run_loop(self):
         try:
@@ -253,6 +303,9 @@ class ScenarioManager:
                     "payload": self.current_state_payload
                 })
 
+                # Persist state after each step
+                asyncio.create_task(self._persist_state())
+
                 # If we hit the debate phase, we pause and wait for the operator decision
                 if step.step_name == "DEBATE_ACTIVE":
                     logger.info(f"Simulation reached DEBATE_ACTIVE for {self.active_scenario_id}. Pausing.")
@@ -325,6 +378,9 @@ class ScenarioManager:
             "type": "state_update",
             "payload": self.current_state_payload
         })
+        
+        # Persist the resolved state
+        await self._persist_state()
 
     def reset_sync(self):
         if self.loop_task:
@@ -336,6 +392,9 @@ class ScenarioManager:
 
     async def reset(self):
         self.reset_sync()
+        # Clear persisted state
+        if self.persistence and self.persistence.is_available:
+            await self.persistence.clear_simulation(self.active_scenario_id)
         await self.broadcast({
             "type": "state_update",
             "payload": self.current_state_payload

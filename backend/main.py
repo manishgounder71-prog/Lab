@@ -1,14 +1,23 @@
+import asyncio
+import datetime
 import json
 import logging
+import os
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, status, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from scenario import ScenarioManager
+from persistence import RedisPersistence
+from agents import SCENARIOS, ScenarioDefinition, CrisisScenarioStep
+
 
 # Setup logs
 logging.basicConfig(level=logging.INFO)
@@ -25,12 +34,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize global Scenario Manager
-manager = ScenarioManager()
+# ── Rate Limiter ───────────────────────────────────────────────────────────
+# Rate limit string (e.g. "5/minute", "10/minute"). Set RATE_LIMIT env var to override.
+_rate_limit_str = os.getenv("RATE_LIMIT", "5/minute")
+limiter = Limiter(key_func=get_remote_address)
 
-import datetime
-from pydantic import BaseModel
-from agents import SCENARIOS, ScenarioDefinition, CrisisScenarioStep
+# Rate limiter setup
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Persistence & Manager ───────────────────────────────────────────────────
+persistence = RedisPersistence()
+manager = ScenarioManager(persistence=persistence)
+
+# Server start time (set during startup event)
+_server_started_at = None
+
+
+@app.on_event("startup")
+async def startup():
+    """Initialize persistence and restore state from Redis on server start."""
+    global _server_started_at
+    _server_started_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+    available = await persistence.initialize()
+    if not available:
+        return
+
+    # Restore dynamic scenario definitions created via webhook
+    restored = await persistence.restore_dynamic_scenarios()
+    for sid, defn_data in restored.items():
+        try:
+            scenario_def = ScenarioDefinition(**defn_data)
+            SCENARIOS[sid] = scenario_def
+            logger.info(f"Restored dynamic scenario {sid} from Redis")
+        except Exception as e:
+            logger.warning(f"Failed to restore scenario {sid}: {e}")
+
+    # Restore manager state (alerts, active scenario state payload)
+    await manager.restore_from_persistence()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Clean up Redis connection on server stop."""
+    await persistence.close()
+
+
+# ── API Key Authentication ──────────────────────────────────────────────────
+
+async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
+    """
+    Dependency that validates the X-API-Key header.
+    If API_KEY env var is not set, all requests are allowed (dev mode).
+    """
+    expected = os.getenv("API_KEY")
+    if not expected:
+        logger.warning("API_KEY not configured — webhook endpoint accepts all requests")
+        return True
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-API-Key header",
+        )
+    if x_api_key != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
+    return True
 
 class ExternalAlert(BaseModel):
     source: str
@@ -38,6 +110,24 @@ class ExternalAlert(BaseModel):
     severity: str
     title: str
     description: str
+
+    @field_validator("source", "title", "description")
+    @classmethod
+    def validate_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field must not be empty")
+        if len(v) > 500:
+            raise ValueError("Field must not exceed 500 characters")
+        return v.strip()
+
+    @field_validator("severity")
+    @classmethod
+    def validate_severity(cls, v: str) -> str:
+        allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+        upper = v.upper()
+        if upper not in allowed:
+            raise ValueError(f"Severity must be one of {allowed}")
+        return upper
 
 def create_dynamic_scenario(alert: ExternalAlert) -> ScenarioDefinition:
     # Generates a dynamic scenario based on the incoming alert parameters
@@ -220,7 +310,8 @@ def create_dynamic_scenario(alert: ExternalAlert) -> ScenarioDefinition:
     )
 
 @app.post("/api/incident/trigger")
-async def trigger_incident(alert: ExternalAlert):
+@limiter.limit(_rate_limit_str)
+async def trigger_incident(request: Request, alert: ExternalAlert, _auth=Depends(verify_api_key)):
     new_scenario = create_dynamic_scenario(alert)
     SCENARIOS[new_scenario.id] = new_scenario
     
@@ -235,6 +326,12 @@ async def trigger_incident(alert: ExternalAlert):
         "status": "Active War Room Spawned"
     }
     manager.alerts_history.insert(0, alert_record)
+    
+    # Persist to Redis (fire-and-forget — non-blocking)
+    asyncio.create_task(persistence.push_alert(alert_record))
+    asyncio.create_task(persistence.save_scenario_definition(
+        new_scenario.id, new_scenario.model_dump()
+    ))
     
     manager.start_simulation(new_scenario.id)
     
@@ -253,8 +350,69 @@ def get_alerts():
 def read_root():
     return {"status": "online", "service": "Crisis Command Center Backend"}
 
+
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint returning system status, Redis connectivity,
+    rate limit configuration, and active simulation state.
+    """
+    # Redis status
+    redis_available = persistence.is_available
+    redis_info = {
+        "available": redis_available,
+        "url_configured": bool(persistence._redis_url),
+    }
+
+    # Rate limiter info
+    rate_limit_info = {
+        "configured_limit": _rate_limit_str,
+    }
+
+    # Manager / simulation state
+    active_scenario = {
+        "id": manager.active_scenario_id,
+        "state": manager.scenario_state,
+        "running": manager.is_running,
+        "step_index": manager.current_step_index,
+        "decision_made": manager.decision_made,
+        "connected_clients": len(manager.active_connections),
+        "alerts_history_count": len(manager.alerts_history),
+    }
+
+    # Auth info (key existence only — never expose the key itself)
+    api_key_configured = bool(os.getenv("API_KEY"))
+
+    return {
+        "status": "healthy",
+        "service": "Crisis Command Center Backend",
+        "version": "1.0.0",
+        "redis": redis_info,
+        "rate_limit": rate_limit_info,
+        "auth": {"api_key_configured": api_key_configured},
+        "active_scenario": active_scenario,
+        "uptime": {"started_at": _server_started_at},
+    }
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time crisis updates.
+    Requires ?api_key=<key> query param if API_KEY env var is set (dev mode allows unauthenticated).
+    """
+    # Authenticate via query parameter
+    expected_api_key = os.getenv("API_KEY")
+    if expected_api_key:
+        provided_key = websocket.query_params.get("api_key", "")
+        if not provided_key:
+            await websocket.close(code=4001, reason="Missing api_key query parameter")
+            logger.warning("WebSocket rejected: missing api_key query param")
+            return
+        if provided_key != expected_api_key:
+            await websocket.close(code=4001, reason="Invalid API key")
+            logger.warning(f"WebSocket rejected: invalid API key from {websocket.client}")
+            return
+
     await manager.connect(websocket)
     try:
         while True:

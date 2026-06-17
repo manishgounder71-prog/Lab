@@ -4,8 +4,8 @@ import Page from "@/app/page";
 
 // Mock recharts to avoid SVG rendering issues
 vi.mock("recharts", () => ({
-  ResponsiveContainer: ({ children }: any) => <div data-testid="responsive-container">{children}</div>,
-  AreaChart: ({ children }: any) => <div data-testid="area-chart">{children}</div>,
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="responsive-container">{children}</div>,
+  AreaChart: ({ children }: { children: React.ReactNode }) => <div data-testid="area-chart">{children}</div>,
   Area: () => null,
   XAxis: () => null,
   YAxis: () => null,

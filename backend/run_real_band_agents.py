@@ -16,10 +16,16 @@ logger = logging.getLogger("run_real_band_agents")
 
 async def run_agent(name: str, adapter, agent_id: str, api_key: str):
     logger.info(f"Starting Band Agent: {name} ({agent_id})")
+    
+    rest_url = os.getenv("BAND_REST_URL", "https://app.band.ai")
+    ws_url = os.getenv("BAND_WS_URL", "wss://app.band.ai/api/v1/socket/websocket")
+    
     agent = Agent.create(
         adapter=adapter,
         agent_id=agent_id,
-        api_key=api_key
+        api_key=api_key,
+        rest_url=rest_url,
+        ws_url=ws_url
     )
     async with agent:
         await agent.run_forever()

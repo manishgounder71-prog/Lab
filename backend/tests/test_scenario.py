@@ -1,6 +1,7 @@
 """Tests for ScenarioManager — initialization, simulation lifecycle, and decision flow."""
 
 import pytest
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from scenario import ScenarioManager
 from agents import SCENARIOS
@@ -233,7 +234,7 @@ class TestRunLoop:
 
         try:
             await manager.loop_task
-        except:
+        except asyncio.CancelledError:
             pass
 
         # The loop task should be cancelled
