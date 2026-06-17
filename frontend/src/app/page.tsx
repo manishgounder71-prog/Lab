@@ -5,6 +5,7 @@ import { useCommandCenter } from '../context/CommandCenterContext';
 import dynamic from 'next/dynamic';
 import SpaceBackground from '../components/SpaceBackground';
 import NeuralGraph from '../components/NeuralGraph';
+import Image from 'next/image';
 
 // Lazy-load Three.js component to reduce initial bundle size
 const SeverityOrb = dynamic(() => import('../components/SeverityOrb'), {
@@ -701,11 +702,12 @@ function CommandCenterShell() {
 
               {/* Data Visualizer Centerpiece */}
               <div className="md:col-span-12 glass-panel h-80 rounded-lg relative overflow-hidden flex items-center justify-center border-[#c6c6c6]/20">
-                <div className="absolute inset-0 opacity-20 pointer-events-none">                    <img 
+                <div className="absolute inset-0 opacity-20 pointer-events-none">
+                  <Image 
                     alt="Cyber Grid" 
-                    loading="lazy" 
-                    decoding="async" 
-                    className="w-full h-full object-cover" 
+                    fill
+                    sizes="100vw"
+                    style={{ objectFit: 'cover' }}
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYkywpcb7m3ioQuUXrSeoSKW099g-NT8fyRqNBKwwMjEh6qmpw_rRdyN4xl4c8HngGwfWvRGbGKWph0agpG8RD8V5oB3Bn64A9jha10hkmcXH2VXHlxD9AmfhZYvmaPciXA15bN9pfmA2jf075p4Tk-nIEtJ8nle_SpQZ0s_hRjYv6nabkf42wGmLTIRu0njJkwe_5dViYM0EG-osEBwrd4kzyDjm5Lpb1VBhGRXAR0DIZg4BzjX-n3BJ2mS4Y-yR9pZhIrfb7Vd4"
                   />
                 </div>
@@ -1174,12 +1176,12 @@ function CommandCenterShell() {
                 </div>
 
                 <div className="glass-panel p-6 rounded-xl flex-1 flex flex-col justify-end">
-                  <div className="mb-4 opacity-40 grayscale">
-                    <img 
+                  <div className="mb-4">
+                    <Image 
                       alt="World Map Visualization" 
-                      loading="lazy" 
-                      decoding="async" 
-                      className="w-full h-32 object-cover rounded" 
+                      width={400}
+                      height={128}
+                      className="w-full h-32 object-cover rounded grayscale opacity-40"
                       src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZubbDnpr9V1os_VQt8QFxGPoDXNM45xBMrOt_34_LIzzRxrbIs2a9B6Mbw5-0Jg9AIfpV53rGT4kW3Oen6SUKsLKIjgeHyfOgdteMwqjeIbB_73Tj6v1H_3xfkT4_l_DcKnJZctMgoH396M-xinXT8hoOtuLo-Fbblwp_AiQXPn0ozADswfBgkKN0AgcvXl3747mOzzBjiHBr7TpAaS37ADqATZEctXFN4iMBwS8SZ0rhWLhBxS1Y-dwwQyqQ4Q8tzxdl9ubt6ls"
                     />
                   </div>
@@ -1324,10 +1326,10 @@ function CommandCenterShell() {
                 <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-4">INCIDENT SHELL PROFILE</p>
                 <div className="flex items-center gap-4 mb-6">
                   <div className="w-12 h-12 rounded-full overflow-hidden border border-[#c6c6c6]/30">
-                    <img 
+                    <Image 
                       alt="Commander Profile" 
-                      loading="lazy" 
-                      decoding="async" 
+                      width={48}
+                      height={48}
                       className="w-full h-full object-cover" 
                       src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJxl8b7KReGsBi8ki4Ykz3VApkTNzFGMiusNkkDYs4FVexrfvU2nIzus7YUdY016XY-d2IpV44D5e_E6F7JD3jiGrE38wzVD8EA8_AUQkSK4KBZBhYDUaaT6dTveoj9dFuqKLkYCe_r7lOFfjiR5j1h2sQoBYIWRFwWZJQoQuGhLSgRHwiVk-Ldaq19aiLqKu_ueBoKfWQWw4qSxyK34hNM1EtqkFECGkZgKYQ7uK22hnC5cDx6BZV-tdCSspPDHXJA6tpusyPZsM"
                     />

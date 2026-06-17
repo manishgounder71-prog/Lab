@@ -10,6 +10,39 @@ This project is built for the **Band of Agents Hackathon** hosted by **Lablab.ai
 
 ## 🏗️ Architecture Overview
 
+```mermaid
+graph TD
+    subgraph Frontend [Next.js Client]
+        UI[Interactive Console Dashboard]
+        WS_Client[WebSocket Client]
+        UI -->|Triggers Webhook Simulation| Webhook[Webhook Ingestion Simulator]
+        WS_Client -->|Receives updates| UI
+    end
+
+    subgraph Backend [FastAPI Server]
+        API[FastAPI endpoints]
+        WS_Server[WebSocket Server]
+        Mgr[Scenario Manager]
+        SDK[Band SDK Agent Adapters]
+        LLM[(LangChain Gemini/OpenAI API)]
+
+        Webhook -->|HTTP POST /api/incident/trigger| API
+        API -->|Starts simulation| Mgr
+        Mgr -->|Streams state updates| WS_Server
+        WS_Server -->|WS /ws| WS_Client
+
+        Mgr -->|Reaches DEBATE_ACTIVE| SDK
+        SDK -->|Requests in-character reply| LLM
+        LLM -->|Generates dialogue| SDK
+        SDK -->|Pipes chat message| Mgr
+    end
+
+    subgraph Storage [Persistence Layer]
+        Redis[(Redis Cache)]
+        Mgr -->|Persists Scenario State| Redis
+    end
+```
+
 The application is structured into two main components:
 
 1. **Next.js Frontend (`/frontend`)**

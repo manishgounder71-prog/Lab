@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 import React from "react";
