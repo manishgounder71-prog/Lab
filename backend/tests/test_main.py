@@ -62,6 +62,11 @@ class TestHttpEndpoints:
         # Verify allow-origin header (CORS allows *)
         assert "access-control-allow-origin" in response.headers
 
+    def test_root_head_endpoint(self, client):
+        """HEAD / should return 200."""
+        response = client.head("/")
+        assert response.status_code == 200
+
 
 
 class TestHealthEndpoint:
@@ -107,6 +112,11 @@ class TestHealthEndpoint:
         assert "uptime" in data
         assert "started_at" in data["uptime"]
         assert data["uptime"]["started_at"] is not None
+
+    def test_health_head_endpoint(self, client):
+        """HEAD /health should return 200."""
+        response = client.head("/health")
+        assert response.status_code == 200
 
 
 

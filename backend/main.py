@@ -346,11 +346,13 @@ async def trigger_incident(request: Request, alert: ExternalAlert, _auth=Depends
 def get_alerts():
     return manager.alerts_history
 
+@app.head("/")
 @app.get("/")
 def read_root():
     return {"status": "online", "service": "Crisis Command Center Backend"}
 
 
+@app.head("/health")
 @app.get("/health")
 async def health_check():
     """
