@@ -156,7 +156,9 @@ function CommandCenterShell() {
     startScenario,
     deployCountermeasures, 
     resetDemo,
-    focusOnAlert
+    focusOnAlert,
+    apiBase,
+    apiKey
   } = useCommandCenter();
 
   // Webhook Simulator form state
@@ -173,11 +175,15 @@ function CommandCenterShell() {
     setWebhookSubmitting(true);
     setWebhookSuccess(false);
     try {
-      const res = await fetch('http://localhost:8000/api/incident/trigger', {
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+      }
+      const res = await fetch(`${apiBase}/api/incident/trigger`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           source: webhookSource,
           event_type: webhookType,
@@ -850,7 +856,7 @@ function CommandCenterShell() {
                   <div className="p-4 bg-white/5 rounded border border-white/5 space-y-3">
                     <p className="font-label-caps text-[10px] text-white tracking-wider font-bold">1. API WEBHOOK ENDPOINT</p>
                     <div className="bg-[#131313] p-2.5 rounded font-data-mono text-[11px] text-[#00ffcc] select-all border border-white/5">
-                      POST http://localhost:8000/api/incident/trigger
+                      POST {apiBase}/api/incident/trigger
                     </div>
                   </div>
 
@@ -870,8 +876,8 @@ function CommandCenterShell() {
                   <div className="p-4 bg-white/5 rounded border border-white/5 space-y-3">
                     <p className="font-label-caps text-[10px] text-white tracking-wider font-bold">3. EXAMPLE CURL TRIGGER</p>
                     <pre className="bg-[#131313] p-3 rounded font-data-mono text-[10px] text-[#cfc4c5] overflow-x-auto whitespace-pre-wrap break-all border border-white/5 select-all">
-{`curl -X POST http://localhost:8000/api/incident/trigger \\
-  -H "Content-Type: application/json" \\
+{`curl -X POST ${apiBase}/api/incident/trigger \\
+  -H "Content-Type: application/json" \\${apiKey ? `\n  -H "X-API-Key: ${apiKey}" \\` : ''}
   -d '{"source":"PagerDuty","event_type":"Ransomware","severity":"critical","title":"Compromised AD Controller","description":"LockBit ransom note found on AD controller."}'`}
                     </pre>
                   </div>

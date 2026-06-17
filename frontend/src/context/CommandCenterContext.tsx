@@ -94,6 +94,8 @@ interface CommandCenterContextType {
   deployCountermeasures: (decision: 'SHUTDOWN' | 'ISOLATION') => void;
   resetDemo: () => void;
   focusOnAlert: (alert: AlertInfo) => void;
+  apiBase: string;
+  apiKey: string;
 }
 
 const initialStates: CommandCenterState = {
@@ -786,9 +788,25 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [socket, setSocket] = useState<WebSocket | null>(null);
 
+  const apiBase = (() => {
+    if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    if (wsUrl) {
+      try {
+        const parsed = new URL(wsUrl);
+        const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+        return `${protocol}//${parsed.host}`;
+      } catch (e) {
+        return wsUrl.replace(/^ws(s)?:\/\//, 'http$1://').split('/ws')[0];
+      }
+    }
+    return 'http://localhost:8000';
+  })();
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY || '';
+
   useEffect(() => {
     let isMounted = true;
-    fetch('http://localhost:8000/api/incident/alerts')
+    fetch(`${apiBase}/api/incident/alerts`)
       .then(res => {
         if (res.ok) return res.json();
         throw new Error('Failed to fetch alerts');
@@ -1006,7 +1024,7 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
   }, []);
 
   return (
-    <CommandCenterContext.Provider value={{ state, activeTab, setActiveTab, startDemo, startScenario, deployCountermeasures, resetDemo, focusOnAlert }}>
+    <CommandCenterContext.Provider value={{ state, activeTab, setActiveTab, startDemo, startScenario, deployCountermeasures, resetDemo, focusOnAlert, apiBase, apiKey }}>
       {children}
     </CommandCenterContext.Provider>
   );
