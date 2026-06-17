@@ -1,1 +1,5 @@
+# Windows reserved name artifact
 nul
+
+# Environment variables (API keys & secrets)
+.env
