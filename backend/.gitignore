@@ -12,3 +12,7 @@ wheels/
 # Environments/Credentials
 .env
 
+# SQLite database (generated at runtime)
+crisis_state.db
+*.db
+

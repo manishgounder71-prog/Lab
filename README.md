@@ -1,6 +1,6 @@
 # 🚨 Crisis Command Center (Band SDK Powered)
 
-[![CI — Crisis Command Center](https://github.com/YOUR_USERNAME/crisis-command-center/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/crisis-command-center/actions/workflows/ci.yml)
+[![CI — Crisis Command Center](https://github.com/manishgounder71-prog/Lab/actions/workflows/ci.yml/badge.svg)](https://github.com/manishgounder71-prog/Lab/actions/workflows/ci.yml)
 
 The **Crisis Command Center** is a real-time, interactive multi-agent crisis simulation and C-suite debate workspace. It simulates high-stakes enterprise security, financial, and operational crises, allowing an operator to coordinate responses through an autonomous network of AI agents.
 

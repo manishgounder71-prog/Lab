@@ -17,6 +17,8 @@ export interface DebateMessage {
   timestamp: string;
   content: string;
   sentiment: 'neutral' | 'critical' | 'alert' | 'success';
+  reasoning?: string;
+  tools_considered?: string;
 }
 
 export interface TimelineEvent {
@@ -68,9 +70,13 @@ export interface CommandCenterState {
   auditLogs: AuditLog[];
   decisionMatrix: {
     vector: string;
-    shutdownScore: number;
-    isolateScore: number;
+    shutdown_score: number;
+    isolate_score: number;
+    shutdown_note?: string;
+    isolate_note?: string;
   }[];
+  aiRecommendation?: string;
+  aiConfidence?: number;
   postMortem: {
     rootCause: string;
     timelineAnalysis: string;
@@ -94,8 +100,11 @@ interface CommandCenterContextType {
   deployCountermeasures: (decision: 'SHUTDOWN' | 'ISOLATION') => void;
   resetDemo: () => void;
   focusOnAlert: (alert: AlertInfo) => void;
+  sendOperatorMessage: (content: string) => void;
   apiBase: string;
   apiKey: string;
+  backendConnected: boolean;
+  aiProvider: 'gemini' | 'openai' | 'fallback';
 }
 
 const initialStates: CommandCenterState = {
@@ -130,11 +139,17 @@ const initialStates: CommandCenterState = {
   debate: [],
   auditLogs: [],
   decisionMatrix: [
-    { vector: 'Security Risk', shutdownScore: 100, isolateScore: 28 },
-    { vector: 'Revenue Impact', shutdownScore: 10, isolateScore: 85 },
-    { vector: 'Recovery Time', shutdownScore: 30, isolateScore: 90 },
-    { vector: 'Compliance Rating', shutdownScore: 95, isolateScore: 40 }
+    { vector: 'Security Risk', shutdown_score: 95, isolate_score: 30,
+      shutdown_note: 'MINIMAL RESIDUAL RISK', isolate_note: 'CRITICAL SECONDARY VECTORS' },
+    { vector: 'Revenue Impact', shutdown_score: 10, isolate_score: 85,
+      shutdown_note: 'MAXIMUM (EST: $4.2M)', isolate_note: 'MINIMAL (EST: $500K)' },
+    { vector: 'Recovery Window', shutdown_score: 30, isolate_score: 90,
+      shutdown_note: '48 - 72 Hours (System boot cycle)', isolate_note: '2 - 6 Hours (Patch rollout)' },
+    { vector: 'Compliance Rating', shutdown_score: 95, isolate_score: 40,
+      shutdown_note: 'Compliance fully secured', isolate_note: 'Ongoing breach window' }
   ],
+  aiRecommendation: 'SHUTDOWN',
+  aiConfidence: 72,
   postMortem: null,
   shutdownLabel: 'EXECUTE SHUTDOWN',
   isolationLabel: 'ATTEMPT ISOLATION',
@@ -787,6 +802,8 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
   const [state, setState] = useState<CommandCenterState>(initialStates);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'fallback'>('fallback');
 
   const apiBase = (() => {
     if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
@@ -821,10 +838,22 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
       })
       .catch(err => console.error('Error fetching alerts history:', err));
 
+    // Fetch system config to detect AI provider
+    fetch(`${apiBase}/api/config`)
+      .then(res => res.ok ? res.json() : null)
+      .then(cfg => {
+        if (cfg && isMounted) {
+          if (cfg.ai?.gemini_available) setAiProvider('gemini');
+          else if (cfg.ai?.openai_available) setAiProvider('openai');
+          else setAiProvider('fallback');
+        }
+      })
+      .catch(() => { /* backend offline — keep fallback */ });
+
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -847,6 +876,7 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
         }
         console.log('Connected to Crisis Command Center backend WS');
         setSocket(ws);
+        setBackendConnected(true);
       };
 
       ws.onmessage = (event) => {
@@ -875,6 +905,7 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
         if (!isMounted) return;
         console.log('Backend WS disconnected, retrying in 3s...');
         setSocket(null);
+        setBackendConnected(false);
         timer = setTimeout(connect, 3000);
       };
     }
@@ -1005,6 +1036,25 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
     }
   }, [socket]);
 
+  const sendOperatorMessage = useCallback((content: string) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: 'operator_message', payload: { content } }));
+    } else {
+      setState((prev) => {
+        const debateList = [...(prev.debate || [])];
+        const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+        debateList.push({
+          sender: 'OPERATOR_01',
+          role: 'Operator',
+          timestamp,
+          content,
+          sentiment: 'neutral'
+        });
+        return { ...prev, debate: debateList };
+      });
+    }
+  }, [socket]);
+
   const resetDemo = useCallback(() => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: 'reset' }));
@@ -1024,7 +1074,7 @@ export function CommandCenterProvider({ children }: { children: React.ReactNode 
   }, []);
 
   return (
-    <CommandCenterContext.Provider value={{ state, activeTab, setActiveTab, startDemo, startScenario, deployCountermeasures, resetDemo, focusOnAlert, apiBase, apiKey }}>
+    <CommandCenterContext.Provider value={{ state, activeTab, setActiveTab, startDemo, startScenario, deployCountermeasures, resetDemo, focusOnAlert, sendOperatorMessage, apiBase, apiKey, backendConnected, aiProvider }}>
       {children}
     </CommandCenterContext.Provider>
   );

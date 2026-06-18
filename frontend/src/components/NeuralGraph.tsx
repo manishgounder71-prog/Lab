@@ -158,6 +158,11 @@ const AgentNode = memo(function AgentNode({
       onPointerDown={(e) => e.stopPropagation()}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
+      onFocus={onHover}
+      onBlur={onLeave}
+      tabIndex={0}
+      role="button"
+      aria-label={`Agent: ${agent.name}, Role: ${agent.role}, Status: ${agent.status}`}
       className={`absolute rounded bg-[#131313]/95 border ${statusBorder} flex flex-col justify-between overflow-hidden shadow-2xl transition-all duration-300 z-10 group cursor-pointer`}
       style={{ left: pos.x - NODE_WIDTH / 2, top: pos.y - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT }}
       whileHover={{ scale: 1.05 }}
@@ -266,20 +271,20 @@ export default function NeuralGraph() {
 
         {/* Toolbar Controls */}
         <div className="flex items-center gap-2">
-          <div className="flex bg-white/5 border border-white/10 rounded-sm overflow-hidden mr-2">
-            <button onClick={handleToggleGrid} className={`p-2 hover:bg-white/10 transition-colors border-r border-white/10 ${showGrid ? 'text-emerald-400' : 'text-neutral-500'}`} title="Toggle Grid">
+          <div className="flex bg-white/5 border border-white/10 rounded-sm overflow-hidden mr-2" role="toolbar" aria-label="Neural graph controls">
+            <button onClick={handleToggleGrid} className={`p-2 hover:bg-white/10 transition-colors border-r border-white/10 ${showGrid ? 'text-emerald-400' : 'text-neutral-500'}`} title="Toggle Grid" aria-label="Toggle background grid" aria-pressed={showGrid}>
               <Grid size={14} />
             </button>
-            <button onClick={handleResetView} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Reset View & Pan">
+            <button onClick={handleResetView} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Reset View & Pan" aria-label="Reset view and pan position">
               <Maximize2 size={14} />
             </button>
-            <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Zoom In">
+            <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Zoom In" aria-label="Zoom in on graph">
               <ZoomIn size={14} />
             </button>
-            <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Zoom Out">
+            <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors border-r border-white/10" title="Zoom Out" aria-label="Zoom out on graph">
               <ZoomOut size={14} />
             </button>
-            <button onClick={handleResetZoom} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors text-xs font-data-mono" title="Reset Zoom">
+            <button onClick={handleResetZoom} className="p-2 hover:bg-white/10 text-[#c6c6c6] transition-colors text-xs font-data-mono" title="Reset Zoom" aria-label={`Reset zoom to ${Math.round(zoom * 100)}%`}>
               {Math.round(zoom * 100)}%
             </button>
           </div>
@@ -288,6 +293,7 @@ export default function NeuralGraph() {
             <button
               onClick={startDemo}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-sm font-label-caps text-[10px] font-bold transition-all shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+              aria-label="Trigger agent workflow flow"
             >
               <Play size={10} fill="black" /> TRIGGER FLOW
             </button>
@@ -324,7 +330,7 @@ export default function NeuralGraph() {
 
             {/* Stage Headers & Divider Lines */}
             {STAGE_HEADERS.map((stage, idx) => (
-              <g key={idx}>
+              <g key={idx} role="img" aria-label={`Stage ${idx + 1}: ${stage.name}`}>
                 <text x={stage.x} y={40} textAnchor="middle" className="font-data-mono text-[9px] font-bold fill-[#cfc4c5]/30 tracking-widest uppercase">
                   {stage.name}
                 </text>

@@ -3,6 +3,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-primary: #c6c6c6;
+  --color-on-primary: #303030;
+  --color-on-surface-variant: #cfc4c5;
+  --color-surface-dim: #131313;
+  --color-surface-container: #1f1f1f;
+  --color-surface-container-highest: #353535;
+  --color-outline-variant: #4c4546;
+  --color-accent: #00ffcc;
+  --color-amber: #e9a13b;
+  --color-purple: #b55fe6;
+  --color-red: #ff4444;
+  --color-emerald: #10b981;
+  --color-tertiary: #988e90;
+  --color-foreground: #e2e2e2;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -60,6 +78,35 @@ html {
   --color-surface-container: #1f1f1f;
   --color-surface-container-highest: #353535;
   --color-outline-variant: #4c4546;
+  --color-accent: #00ffcc;
+  --color-glow: #00ffcc;
+  --color-amber: #e9a13b;
+  --color-purple: #b55fe6;
+  --color-red: #ff4444;
+  --color-emerald: #10b981;
+  --color-tertiary: #988e90;
+}
+
+/* Design-system utilities — single source of truth for spacing, radii, shadows */
+@utility text-caption {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-on-surface-variant);
+}
+@utility text-data {
+  font-family: 'JetBrains Mono', monospace;
+}
+@utility glass {
+  background: rgba(26, 26, 26, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+@utility text-accent {
+  color: var(--color-primary);
+}
+@utility border-dim {
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 body {

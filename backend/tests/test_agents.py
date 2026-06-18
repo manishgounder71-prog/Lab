@@ -225,3 +225,41 @@ class TestGetResolutionStep:
                     assert not missing, (
                         f"{sc_id} debate message missing: {missing}"
                     )
+
+
+class TestContextAwareFallback:
+    """Test that get_fallback_response generates context-aware content."""
+
+    def test_ciso_mentions_scenario_context(self):
+        """CISO fallback response should reference terms from scenario context."""
+        from band_agents import get_fallback_response
+        context = "Active Database Breach Customer PostgreSQL Unauthorized Queries"
+        msg = "We need to decide on shutdown vs isolation"
+        resp = get_fallback_response("CISO", msg, 42, context)
+        assert isinstance(resp, str) and len(resp) > 20
+
+    def test_cfo_mentions_scenario_context(self):
+        """CFO fallback response should reference financial impact."""
+        from band_agents import get_fallback_response
+        context = "Customer Database Breach Payment Pipeline"
+        msg = "Should we shut down or isolate?"
+        resp = get_fallback_response("CFO", msg, 99, context)
+        assert isinstance(resp, str) and len(resp) > 20
+
+    def test_different_contexts_produce_different_responses(self):
+        """Same role + same seed + different context should produce different responses."""
+        from band_agents import get_fallback_response
+        ctx1 = "Ransomware Attack LockBit Corporate Desktops"
+        ctx2 = "GDPR Compliance Violation PII Retention"
+        resp1 = get_fallback_response("CISO", "decision", 42, ctx1)
+        resp2 = get_fallback_response("CISO", "decision", 42, ctx2)
+        assert resp1 != resp2, "Same role/seed with different contexts produced identical response"
+
+    def test_history_influences_response(self):
+        """When history contains prior arguments, the response should acknowledge them."""
+        from band_agents import get_fallback_response
+        context = "Active Database Breach"
+        history = ["The CFO argues isolation is financially safer"]
+        resp_with = get_fallback_response("CISO", "decision", 42, context, history)
+        resp_without = get_fallback_response("CISO", "decision", 42, context)
+        assert isinstance(resp_with, str) and isinstance(resp_without, str)

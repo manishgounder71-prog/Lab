@@ -3,26 +3,70 @@ import datetime
 import json
 import logging
 import os
+import time
 import uuid
+from contextvars import ContextVar
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, status, Depends, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, status, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel, validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from band_agents import has_gemini, has_openai
 from scenario import ScenarioManager
 from persistence import RedisPersistence
 from agents import SCENARIOS, ScenarioDefinition, CrisisScenarioStep
 
 
-# Setup logs
-logging.basicConfig(level=logging.INFO)
+# ── Structured JSON Logging ─────────────────────────────────────────────────
+request_id_var: ContextVar[str] = ContextVar("request_id", default="")
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "request_id": request_id_var.get(""),
+        }
+        if record.exc_info and record.exc_info[0]:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry, default=str)
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger("main")
+
+# ── Request ID Middleware ───────────────────────────────────────────────────
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
+        request_id_var.set(req_id)
+        start = time.monotonic()
+        response: Response = await call_next(request)
+        elapsed = time.monotonic() - start
+        response.headers["X-Request-ID"] = req_id
+        response.headers["X-Response-Time-Ms"] = str(round(elapsed * 1000))
+        logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({elapsed*1000:.0f}ms)")
+        return response
+
+# ── HTTPS Redirect Middleware (production only) ────────────────────────────
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if os.getenv("ENFORCE_HTTPS", "").lower() in ("1", "true", "yes"):
+            forwarded = request.headers.get("X-Forwarded-Proto", "")
+            if forwarded.lower() != "https" and request.url.scheme != "https":
+                secure_url = str(request.url).replace("http://", "https://", 1)
+                return Response(status_code=307, headers={"Location": secure_url})
+        return await call_next(request)
 
 app = FastAPI(title="Enterprise Crisis Command Center AI Backend")
 
@@ -48,6 +92,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(HTTPSRedirectMiddleware)
 
 # ── Rate Limiter ───────────────────────────────────────────────────────────
 # Rate limit string (e.g. "30/minute", "10/second"). Set RATE_LIMIT env var to override.
@@ -60,6 +106,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Persistence & Manager ───────────────────────────────────────────────────
 persistence = RedisPersistence()
+if not os.getenv("REDIS_URL"):
+    from persistence_sqlite import SQLitePersistence
+    persistence = SQLitePersistence()
+    logger.info("No REDIS_URL set, using SQLite persistence")
 manager = ScenarioManager(persistence=persistence)
 
 # Server start time (set during startup event)
@@ -74,6 +124,7 @@ async def startup():
 
     available = await persistence.initialize()
     if not available:
+        logger.warning("Primary persistence unavailable — running without persistence")
         return
 
     # Restore dynamic scenario definitions created via webhook
@@ -126,8 +177,7 @@ class ExternalAlert(BaseModel):
     title: str
     description: str
 
-    @field_validator("source", "title", "description")
-    @classmethod
+    @validator("source", "title", "description")
     def validate_not_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Field must not be empty")
@@ -135,8 +185,7 @@ class ExternalAlert(BaseModel):
             raise ValueError("Field must not exceed 500 characters")
         return v.strip()
 
-    @field_validator("severity")
-    @classmethod
+    @validator("severity")
     def validate_severity(cls, v: str) -> str:
         allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
         upper = v.strip().upper()
@@ -345,7 +394,7 @@ async def trigger_incident(request: Request, alert: ExternalAlert, _auth=Depends
     # Persist to Redis (fire-and-forget — non-blocking)
     asyncio.create_task(persistence.push_alert(alert_record))
     asyncio.create_task(persistence.save_scenario_definition(
-        new_scenario.id, new_scenario.model_dump()
+        new_scenario.id, new_scenario.dict()
     ))
     
     manager.start_simulation(new_scenario.id)
@@ -370,24 +419,41 @@ def read_root():
 @app.head("/health")
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint returning system status, Redis connectivity,
-    rate limit configuration, and active simulation state.
-    """
-    # Redis status
-    redis_available = persistence.is_available
-    redis_info = {
-        "available": redis_available,
-        "url_configured": bool(persistence._redis_url),
+    """Deep health check — verifies Redis, scenario registry, WS readiness, and system deps."""
+    checks = {}
+
+    # Redis — attempt a live PING
+    try:
+        if persistence.is_available:
+            from redis import Redis
+            r = Redis.from_url(persistence._redis_url, socket_connect_timeout=2, socket_timeout=2)
+            r.ping()
+            r.close()
+            checks["redis"] = {"status": "ok", "url_configured": True}
+        else:
+            checks["redis"] = {"status": "unavailable", "url_configured": False}
+    except Exception as e:
+        checks["redis"] = {"status": "error", "detail": str(e)}
+
+    # Scenario registry
+    checks["scenarios"] = {
+        "status": "ok",
+        "count": len(SCENARIOS),
+        "ids": list(sorted(SCENARIOS.keys())),
     }
 
-    # Rate limiter info
-    rate_limit_info = {
-        "configured_limit": _rate_limit_str,
+    # AI providers
+    checks["ai"] = {
+        "gemini_available": has_gemini and bool(os.getenv("GEMINI_API_KEY")),
+        "openai_available": has_openai and bool(os.getenv("OPENAI_API_KEY")),
+        "fallback_active": not (has_gemini or has_openai),
     }
+
+    # Rate limiter
+    checks["rate_limit"] = {"configured_limit": _rate_limit_str}
 
     # Manager / simulation state
-    active_scenario = {
+    checks["active_scenario"] = {
         "id": manager.active_scenario_id,
         "state": manager.scenario_state,
         "running": manager.is_running,
@@ -397,19 +463,36 @@ async def health_check():
         "alerts_history_count": len(manager.alerts_history),
     }
 
-    # Auth info (key existence only — never expose the key itself)
-    api_key_configured = bool(os.getenv("API_KEY"))
+    # Auth
+    checks["auth"] = {"api_key_configured": bool(os.getenv("API_KEY"))}
 
+    checks["uptime"] = {"started_at": _server_started_at}
+    checks["version"] = "1.0.0"
+
+    all_ok = all(
+        v.get("status") in ("ok", None)
+        for k, v in checks.items()
+        if isinstance(v, dict)
+    )
+    checks["status"] = "healthy" if all_ok else "degraded"
+
+    return checks
+
+@app.get("/api/config")
+async def get_config():
+    """Return live system configuration — AI providers, auth status, etc."""
     return {
-        "status": "healthy",
-        "service": "Crisis Command Center Backend",
-        "version": "1.0.0",
-        "redis": redis_info,
-        "rate_limit": rate_limit_info,
-        "auth": {"api_key_configured": api_key_configured},
-        "active_scenario": active_scenario,
-        "uptime": {"started_at": _server_started_at},
+        "ai": {
+            "gemini_available": has_gemini and bool(os.getenv("GEMINI_API_KEY")),
+            "openai_available": has_openai and bool(os.getenv("OPENAI_API_KEY")),
+            "fallback_active": not ((has_gemini and bool(os.getenv("GEMINI_API_KEY"))) or (has_openai and bool(os.getenv("OPENAI_API_KEY")))),
+        },
+        "auth": {
+            "api_key_configured": bool(os.getenv("API_KEY")),
+        },
+        "rate_limit": _rate_limit_str,
     }
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -448,6 +531,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif action == "submit_decision":
                     decision = payload.get("decision")
                     await manager.submit_decision(decision)
+                elif action == "operator_message":
+                    content = payload.get("content", "")
+                    await manager.inject_operator_message(content)
                 elif action == "reset":
                     await manager.reset()
             except Exception as e:

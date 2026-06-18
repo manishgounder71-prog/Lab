@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useCommandCenter } from '../context/CommandCenterContext';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import dynamic from 'next/dynamic';
 import SpaceBackground from '../components/SpaceBackground';
 import NeuralGraph from '../components/NeuralGraph';
@@ -12,7 +13,7 @@ const SeverityOrb = dynamic(() => import('../components/SeverityOrb'), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-full">
-      <div className="w-8 h-8 rounded-full border-2 border-[#c6c6c6] border-t-transparent animate-spin" />
+      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
     </div>
   ),
 });
@@ -22,7 +23,7 @@ const PredictiveChart = dynamic(() => import('../components/PredictiveChart'), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-full">
-      <div className="w-8 h-8 rounded-full border-2 border-[#c6c6c6] border-t-transparent animate-spin" />
+      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
     </div>
   ),
 });
@@ -147,6 +148,55 @@ function getSeverityStyle(severity: string): string {
       return 'border-white/20 text-white bg-white/5';
   }
 }
+function DebateMessage({ msg, msgKey, isExpanded, onToggleReasoning }: {
+  msg: { sender: string; role: string; timestamp: string; content: string; sentiment: string; reasoning?: string; tools_considered?: string };
+  msgKey: string;
+  isExpanded: boolean;
+  onToggleReasoning: (key: string) => void;
+}) {
+  return (
+    <div className={`flex flex-col gap-1.5 ${msg.role === 'CFO' ? 'items-end' : ''}`}>
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-data-mono ${msg.sentiment === 'critical' ? 'text-red-400' : 'text-primary'}`}>
+          {msg.sender}
+        </span>
+        <span className="text-[9px] text-on-surface-variant/50">{msg.timestamp}</span>
+        {(msg.reasoning || msg.tools_considered) && (
+          <button
+            onClick={() => onToggleReasoning(msgKey)}
+            className="text-[8px] text-primary/40 hover:text-primary font-data-mono underline decoration-dotted"
+            aria-label={isExpanded ? 'Hide agent reasoning' : 'Show agent reasoning and tool use'}
+            aria-expanded={isExpanded}
+          >
+            {isExpanded ? 'HIDE ANALYSIS' : 'SHOW ANALYSIS'}
+          </button>
+        )}
+      </div>
+      <div className={`p-3 text-xs leading-relaxed max-w-[85%] ${
+        msg.sentiment === 'critical' ? 'bg-red-500/5 border-l-2 border-red-500 text-white' : 
+        msg.sentiment === 'alert' ? 'bg-yellow-500/5 border-l-2 border-yellow-500 text-white' :
+        'bg-white/5 border border-white/10 rounded-sm text-foreground'
+      }`}>
+        {msg.content}
+        {isExpanded && (msg.reasoning || msg.tools_considered) && (
+          <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
+            {msg.reasoning && (
+              <p className="text-[9px] text-primary/60 italic">
+                <span className="text-primary/80 font-bold">Reasoning: </span>{msg.reasoning}
+              </p>
+            )}
+            {msg.tools_considered && (
+              <p className="text-[9px] text-primary/60">
+                <span className="text-amber-400/80 font-bold">Tool: </span>{msg.tools_considered}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CommandCenterShell() {
   const { 
     state, 
@@ -157,8 +207,11 @@ function CommandCenterShell() {
     deployCountermeasures, 
     resetDemo,
     focusOnAlert,
+    sendOperatorMessage,
     apiBase,
-    apiKey
+    apiKey,
+    backendConnected,
+    aiProvider
   } = useCommandCenter();
 
   // Webhook Simulator form state
@@ -169,6 +222,72 @@ function CommandCenterShell() {
   const [webhookDesc, setWebhookDesc] = React.useState('Multi-vector queries observed exfiltrating sensitive PII logs at 45GB/s.');
   const [webhookSubmitting, setWebhookSubmitting] = React.useState(false);
   const [webhookSuccess, setWebhookSuccess] = React.useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
+  const [showReasoning, setShowReasoning] = React.useState<Record<string, boolean>>({});
+
+  const toggleReasoning = (msgKey: string) => {
+    setShowReasoning(prev => ({ ...prev, [msgKey]: !prev[msgKey] }));
+  };
+
+  const debateContent = state.debate.length === 0 ? (
+    <div className="h-full flex items-center justify-center text-center p-4">
+      <p className="text-xs text-on-surface-variant italic">Debate feed inactive. Kicking off the demo breach will trigger board arguments.</p>
+    </div>
+  ) : (
+    state.debate.map((msg, idx) => (
+      <DebateMessage
+        key={idx}
+        msg={msg}
+        msgKey={`${msg.sender}-${idx}`}
+        isExpanded={showReasoning[`${msg.sender}-${idx}`]}
+        onToggleReasoning={toggleReasoning}
+      />
+    ))
+  );
+
+  React.useEffect(() => {
+    if (!state.simulationRunning) { setElapsedSeconds(0); return; }
+    const interval = setInterval(() => setElapsedSeconds(prev => prev + 1), 1000);
+    return () => clearInterval(interval);
+  }, [state.simulationRunning]);
+
+  const convictionScores = useMemo(() => {
+    const defaults: Record<string, number> = { 'CISO': 94, 'CTA': 75, 'CFO': 42, 'CEO': 88 };
+    if (state.debate.length === 0) return defaults;
+    const roleMap: Record<string, string> = { 'CISO': 'CISO', 'CTO': 'CTA', 'CFO': 'CFO', 'CEO': 'CEO' };
+    const roleFromSender = (sender: string): string | null => {
+      for (const [key, val] of Object.entries(roleMap)) {
+        if (sender.includes(key)) return val;
+      }
+      return null;
+    };
+    const counts: Record<string, number> = {};
+    const sentiments: Record<string, string[]> = {};
+    for (const msg of state.debate) {
+      const role = roleFromSender(msg.sender);
+      if (!role) continue;
+      counts[role] = (counts[role] || 0) + 1;
+      if (!sentiments[role]) sentiments[role] = [];
+      sentiments[role].push(msg.sentiment);
+    }
+    const result: Record<string, number> = { ...defaults };
+    for (const [role, count] of Object.entries(counts)) {
+      let delta = 0;
+      delta += count * 1.2;
+      const critCount = (sentiments[role] || []).filter(s => s === 'critical' || s === 'alert').length;
+      delta += critCount * 2.5;
+      if (count > 8) delta += 3;
+      result[role] = Math.min(99, Math.max(5, Math.round(defaults[role] + delta)));
+    }
+    return result;
+  }, [state.debate]);
+
+  const formatElapsed = (s: number) => {
+    const h = Math.floor(s / 3600).toString().padStart(2, '0');
+    const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${sec}`;
+  };
 
   const handleTriggerWebhook = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,6 +325,14 @@ function CommandCenterShell() {
     } finally {
       setWebhookSubmitting(false);
     }
+  };
+
+  const [operatorMessage, setOperatorMessage] = React.useState('');
+
+  const handleSendOperatorMessage = () => {
+    if (!operatorMessage.trim()) return;
+    sendOperatorMessage(operatorMessage.trim());
+    setOperatorMessage('');
   };
 
   const [exchanges, setExchanges] = React.useState<Array<{
@@ -370,50 +497,89 @@ function CommandCenterShell() {
       <div className="fixed inset-0 dot-grid pointer-events-none z-0" />
 
       {/* Global Command Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#131313]/70 backdrop-blur-xl border-b border-[#4c4546]/30 h-16 flex justify-between items-center px-6 shadow-[0_0_20px_rgba(198,198,198,0.1)]">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-surface-dim/70 backdrop-blur-xl border-b border-outline-variant/30 h-16 flex justify-between items-center px-6 shadow-[0_0_20px_rgba(198,198,198,0.1)]">
         <div className="flex items-center gap-4">
-          <Radio size={28} className="text-[#c6c6c6]" />
+          <Radio size={28} className="text-primary" />
           <div className="flex flex-col">
-            <span className="font-label-caps text-sm tracking-widest text-[#c6c6c6] font-bold">CRISIS COMMAND</span>
-            <span className="font-data-mono text-[9px] text-[#cfc4c5]/75 uppercase tracking-tighter">
+            <span className="font-label-caps text-sm tracking-widest text-primary font-bold">CRISIS COMMAND</span>
+            <span className="font-data-mono text-[9px] text-on-surface-variant/75 uppercase tracking-tighter">
               {state.scenarioState === 'INITIAL' ? 'IDLE SECURITY DOCKS' : `Incident ID: #${state.scenarioId} | Active: ${state.scenarioState}`}
             </span>
           </div>
         </div>
 
         {/* Header Tab Links */}
-        <nav className="hidden md:flex gap-6 h-full items-center">
+        <nav className="hidden md:flex gap-6 h-full items-center" role="navigation" aria-label="Main navigation">
           <button 
             onClick={() => scrollToSection('overview')}
-            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'overview' ? 'border-[#c6c6c6] text-[#c6c6c6]' : 'border-transparent text-[#cfc4c5] hover:text-[#c6c6c6]'}`}
+            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'overview' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-primary'}`}
+            aria-label="Navigate to console home section"
+            aria-current={activeTab === 'overview' ? 'page' : undefined}
           >
             CONSOLE HOME
           </button>
           <button 
             onClick={() => scrollToSection('simulation')}
-            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'simulation' ? 'border-[#c6c6c6] text-[#c6c6c6]' : 'border-transparent text-[#cfc4c5] hover:text-[#c6c6c6]'}`}
+            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'simulation' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-primary'}`}
+            aria-label="Navigate to simulation deck section"
+            aria-current={activeTab === 'simulation' ? 'page' : undefined}
           >
             SIMULATION DECK
           </button>
           <button 
             onClick={() => scrollToSection('dashboard')}
-            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'dashboard' ? 'border-[#c6c6c6] text-[#c6c6c6]' : 'border-transparent text-[#cfc4c5] hover:text-[#c6c6c6]'}`}
+            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'dashboard' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-primary'}`}
+            aria-label="Navigate to live telemetry section"
+            aria-current={activeTab === 'dashboard' ? 'page' : undefined}
           >
             LIVE TELEMETRY
           </button>
           <button 
             onClick={() => scrollToSection('war_room')}
-            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'war_room' ? 'border-[#c6c6c6] text-[#c6c6c6]' : 'border-transparent text-[#cfc4c5] hover:text-[#c6c6c6]'}`}
+            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'war_room' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-primary'}`}
+            aria-label="Navigate to SDK orchestrator section"
+            aria-current={activeTab === 'war_room' ? 'page' : undefined}
           >
             SDK ORCHESTRATOR
           </button>
           <button 
             onClick={() => scrollToSection('board_room')}
-            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'board_room' ? 'border-[#c6c6c6] text-[#c6c6c6]' : 'border-transparent text-[#cfc4c5] hover:text-[#c6c6c6]'}`}
+            className={`font-label-caps text-xs px-3 py-2 border-b-2 transition-all duration-300 ${activeTab === 'board_room' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-primary'}`}
+            aria-label="Navigate to command decisions section"
+            aria-current={activeTab === 'board_room' ? 'page' : undefined}
           >
             COMMAND DECISIONS
           </button>
         </nav>
+
+        {/* AI Provider & Backend Status */}
+        <div className="flex items-center gap-2 mr-2">
+          <span
+            className={`px-2 py-1 rounded text-[8px] font-data-mono font-bold tracking-wider ${
+              aiProvider === 'fallback'
+                ? 'bg-amber-950/40 text-amber-400 border border-amber-500/30'
+                : 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30'
+            }`}
+            role="status"
+            aria-label={aiProvider === 'fallback' ? 'AI provider: fallback mode' : `AI provider: ${aiProvider}`}
+            title={aiProvider === 'fallback' ? 'No API key configured — using fallback text' : `Using real ${aiProvider} LLM`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${aiProvider === 'fallback' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+            {aiProvider === 'gemini' ? 'GEMINI' : aiProvider === 'openai' ? 'OPENAI' : 'FALLBACK'}
+          </span>
+          <span
+            className={`flex items-center gap-1.5 px-2 py-1 rounded text-[8px] font-data-mono font-bold tracking-wider ${
+              backendConnected
+                ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30'
+                : 'bg-amber-950/40 text-amber-400 border border-amber-500/30'
+            }`}
+            role="status"
+            aria-label={backendConnected ? 'Backend connected' : 'Offline simulation mode'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${backendConnected ? 'bg-emerald-400' : 'bg-amber-400'} ${backendConnected ? '' : 'animate-pulse'}`} />
+            {backendConnected ? 'BACKEND' : 'OFFLINE'}
+          </span>
+        </div>
 
         {/* Global Action controls */}
         <div className="flex items-center gap-4">
@@ -421,23 +587,34 @@ function CommandCenterShell() {
             <button 
               onClick={resetDemo}
               className="px-4 py-2 border border-red-500/40 text-red-400 text-xs font-label-caps hover:bg-red-950/30 rounded-sm transition-all"
+              aria-label="Reset crisis simulation"
             >
               RESET CRISIS
             </button>
           ) : (
             <button 
               onClick={startDemo}
-              className="px-5 py-2 bg-[#c6c6c6] text-[#303030] text-xs font-label-caps hover:bg-white rounded-sm transition-all shadow-[0_0_15px_rgba(198,198,198,0.2)]"
+              className="px-5 py-2 bg-primary text-on-primary text-xs font-label-caps hover:bg-white rounded-sm transition-all shadow-[0_0_15px_rgba(198,198,198,0.2)]"
+              aria-label="Start breach simulation demo"
             >
               SIMULATE BREACH DEMO
             </button>
           )}
-          <Radar size={20} className="text-[#c6c6c6] cursor-pointer hover:scale-105 active:scale-95 duration-200" />
+          <Radar size={20} className="text-primary cursor-pointer hover:scale-105 active:scale-95 duration-200" role="img" aria-label="Radar indicator" />
         </div>
       </header>
 
+      {!backendConnected && !state.simulationRunning && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2 rounded border border-amber-500/30 bg-amber-950/20 backdrop-blur-xl" role="alert" aria-label="Offline mode notice">
+          <span className="text-[10px] text-amber-400 font-data-mono">
+            Click the <strong>breach button</strong> above to watch multi-agent crisis response &mdash; no backend needed.
+          </span>
+        </div>
+      )}
+
       {/* Main content body */}
       <main className="flex-1 relative z-10 pt-24 pb-24 px-6 md:px-8 max-w-[1700px] mx-auto w-full space-y-24">
+        <ErrorBoundary>
         
         {/* Section 1: Overview */}
         <section id="overview" className="scroll-mt-24 w-full section-container">
@@ -450,31 +627,33 @@ function CommandCenterShell() {
           >
             {/* Hero Section */}
             <div className="flex flex-col items-center text-center max-w-5xl mx-auto py-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-[#c6c6c6]/10 border border-[#c6c6c6]/20 mb-6">
-                <span className={`w-2.5 h-2.5 rounded-full transition-colors duration-300 ${state.scenarioState === 'INITIAL' ? 'bg-[#00ffcc]' : 'bg-red-500'}`} />
-                <span className="font-label-caps text-[10px] text-[#c6c6c6]">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-primary/10 border border-primary/20 mb-6">
+                <span className={`w-2.5 h-2.5 rounded-full transition-colors duration-300 ${state.scenarioState === 'INITIAL' ? 'bg-accent' : 'bg-red-500'}`} />
+                <span className="font-label-caps text-[10px] text-primary">
                   SYSTEM STATUS: {state.scenarioState === 'INITIAL' ? 'OPTIMAL' : 'ACTIVE BREACH DETECTED'}
                 </span>
               </div>
               
               <h1 className="font-display-xl text-4xl md:text-7xl font-bold leading-tight mb-6 text-white tracking-tight">
-                Enterprise <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#c6c6c6] to-[#988e90]">Crisis Command</span> Center
+                Enterprise <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-tertiary">Crisis Command</span> Center
               </h1>
               
-              <p className="font-body-base text-[#cfc4c5] max-w-2xl mb-8 text-base md:text-lg">
+              <p className="font-body-base text-on-surface-variant max-w-2xl mb-8 text-base md:text-lg">
                 Multi-agent collaborative war room powered by Band SDK orchestration layer. Coordinating security threat analysis, infrastructure response, and corporate liability protocols.
               </p>
 
               <div className="flex gap-4">
                 <button 
                   onClick={() => scrollToSection('war_room')}
-                  className="bg-[#c6c6c6] text-[#303030] px-8 py-3.5 rounded-sm font-label-caps text-xs hover:bg-white transition-all shadow-[0_0_20px_rgba(198,198,198,0.2)]"
+                  className="bg-primary text-on-primary px-8 py-3.5 rounded-sm font-label-caps text-xs hover:bg-white transition-all shadow-[0_0_20px_rgba(198,198,198,0.2)]"
+                  aria-label="Launch war room section"
                 >
                   LAUNCH WAR ROOM
                 </button>
                 <button 
                   onClick={() => scrollToSection('dashboard')}
-                  className="border border-[#4c4546] text-[#e2e2e2] px-8 py-3.5 rounded-sm font-label-caps text-xs hover:border-[#c6c6c6] transition-all"
+                  className="border border-outline-variant text-foreground px-8 py-3.5 rounded-sm font-label-caps text-xs hover:border-primary transition-all"
+                  aria-label="Go to executive summary section"
                 >
                   EXECUTIVE SUMMARY
                 </button>
@@ -490,7 +669,7 @@ function CommandCenterShell() {
                   ? 'border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.05)]' 
                   : secAgent?.status === 'SLEEPING'
                   ? 'border-emerald-500/30'
-                  : 'border-[#4c4546]/30'
+                  : 'border-outline-variant/30'
               }`} style={{ animationDelay: '0s' }}>
                 <div className="flex justify-between items-start mb-6">
                   <div className={`p-3 rounded-sm transition-colors ${
@@ -500,7 +679,7 @@ function CommandCenterShell() {
                       ? 'bg-amber-500/10'
                       : secAgent?.status === 'SLEEPING'
                       ? 'bg-emerald-500/10'
-                      : 'bg-[#c6c6c6]/10'
+                      : 'bg-primary/10'
                   }`}>
                     <Shield size={24} className={`transition-colors ${
                       secAgent?.status === 'ACTIVE'
@@ -509,11 +688,11 @@ function CommandCenterShell() {
                         ? 'text-amber-400'
                         : secAgent?.status === 'SLEEPING'
                         ? 'text-emerald-400'
-                        : 'text-[#c6c6c6]'
+                        : 'text-primary'
                     } ${['ACTIVE', 'THINKING'].includes(secAgent?.status || '') ? 'animate-pulse' : ''}`} />
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="font-label-caps text-[10px] text-[#c6c6c6] opacity-60">AGENT_SEC_01</span>
+                    <span className="font-label-caps text-[10px] text-primary opacity-60">AGENT_SEC_01</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-data-mono font-bold tracking-wider uppercase ${
                       secAgent?.status === 'ACTIVE'
                         ? 'bg-red-950/40 text-red-400 border border-red-500/30 animate-pulse'
@@ -521,14 +700,14 @@ function CommandCenterShell() {
                         ? 'bg-amber-950/40 text-amber-400 border border-amber-500/30'
                         : secAgent?.status === 'SLEEPING'
                         ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-white/5 text-[#c6c6c6] border border-white/5'
+                        : 'bg-white/5 text-primary border border-white/5'
                     }`}>
                       {secAgent?.status || 'IDLE'}
                     </span>
                   </div>
                 </div>
                 <h3 className="font-title-md text-lg mb-2">{secAgent?.name || "Cyber Threat Containment Agent"}</h3>
-                <p className="font-body-sm text-sm text-[#cfc4c5] mb-6 min-h-[40px]">
+                <p className="font-body-sm text-sm text-on-surface-variant mb-6 min-h-[40px]">
                   {secAgent?.lastMessage || "Real-time threat detection and automated perimeter lockdown protocols."}
                 </p>
                 <div className="space-y-3">
@@ -540,10 +719,10 @@ function CommandCenterShell() {
                         ? 'bg-amber-500 w-[55%] animate-pulse'
                         : secAgent?.status === 'SLEEPING'
                         ? 'bg-emerald-500 w-full'
-                        : 'bg-[#c6c6c6] w-[15%]'
+                        : 'bg-primary w-[15%]'
                     }`} />
                   </div>
-                  <div className="flex justify-between text-[10px] font-data-mono text-[#c6c6c6]/70">
+                  <div className="flex justify-between text-[10px] font-data-mono text-primary/70">
                     <span className="uppercase">
                       {secAgent?.status === 'ACTIVE'
                         ? 'CONTAINMENT PROTOCOL DEPLOYED'
@@ -574,7 +753,7 @@ function CommandCenterShell() {
                   ? 'border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.05)]' 
                   : infraAgent?.status === 'SLEEPING'
                   ? 'border-emerald-500/30'
-                  : 'border-[#4c4546]/30'
+                  : 'border-outline-variant/30'
               }`} style={{ animationDelay: '1.5s' }}>
                 <div className="flex justify-between items-start mb-6">
                   <div className={`p-3 rounded-sm transition-colors ${
@@ -584,7 +763,7 @@ function CommandCenterShell() {
                       ? 'bg-amber-500/10'
                       : infraAgent?.status === 'SLEEPING'
                       ? 'bg-emerald-500/10'
-                      : 'bg-[#c6c6c6]/10'
+                      : 'bg-primary/10'
                   }`}>
                     <Cpu size={24} className={`transition-colors ${
                       infraAgent?.status === 'ACTIVE'
@@ -593,11 +772,11 @@ function CommandCenterShell() {
                         ? 'text-amber-400'
                         : infraAgent?.status === 'SLEEPING'
                         ? 'text-emerald-400'
-                        : 'text-[#c6c6c6]'
+                        : 'text-primary'
                     } ${['ACTIVE', 'THINKING'].includes(infraAgent?.status || '') ? 'animate-spin' : ''}`} style={{ animationDuration: infraAgent?.status === 'ACTIVE' ? '3s' : '8s' }} />
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="font-label-caps text-[10px] text-[#c6c6c6] opacity-60">AGENT_INFRA_02</span>
+                    <span className="font-label-caps text-[10px] text-primary opacity-60">AGENT_INFRA_02</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-data-mono font-bold tracking-wider uppercase ${
                       infraAgent?.status === 'ACTIVE'
                         ? 'bg-red-950/40 text-red-400 border border-red-500/30 animate-pulse'
@@ -605,27 +784,27 @@ function CommandCenterShell() {
                         ? 'bg-amber-950/40 text-amber-400 border border-amber-500/30'
                         : infraAgent?.status === 'SLEEPING'
                         ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-white/5 text-[#c6c6c6] border border-white/5'
+                        : 'bg-white/5 text-primary border border-white/5'
                     }`}>
                       {infraAgent?.status || 'IDLE'}
                     </span>
                   </div>
                 </div>
                 <h3 className="font-title-md text-lg mb-2">{infraAgent?.name || "Cloud Infrastructure & Failover Architect"}</h3>
-                <p className="font-body-sm text-sm text-[#cfc4c5] mb-6 min-h-[40px]">
+                <p className="font-body-sm text-sm text-on-surface-variant mb-6 min-h-[40px]">
                   {infraAgent?.lastMessage || "Load balancing and cloud resource reallocation during peak incidents."}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {infraAgent?.tags ? (
                     infraAgent.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] font-data-mono text-[#c6c6c6] uppercase tracking-tighter">
+                      <span key={tag} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] font-data-mono text-primary uppercase tracking-tighter">
                         {tag}
                       </span>
                     ))
                   ) : (
                     <>
-                      <span className="px-2 py-1 bg-[#353535] rounded text-[10px] font-data-mono text-[#c6c6c6]">AWS-US-EAST-1</span>
-                      <span className="px-2 py-1 bg-[#353535] rounded text-[10px] font-data-mono text-[#c6c6c6]">ACTIVE</span>
+                      <span className="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-data-mono text-primary">AWS-US-EAST-1</span>
+                      <span className="px-2 py-1 bg-surface-container-highest rounded text-[10px] font-data-mono text-primary">ACTIVE</span>
                     </>
                   )}
                 </div>
@@ -639,7 +818,7 @@ function CommandCenterShell() {
                   ? 'border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.05)]' 
                   : legalAgent?.status === 'SLEEPING'
                   ? 'border-emerald-500/30'
-                  : 'border-[#4c4546]/30'
+                  : 'border-outline-variant/30'
               }`} style={{ animationDelay: '0.8s' }}>
                 <div className="flex justify-between items-start mb-6">
                   <div className={`p-3 rounded-sm transition-colors ${
@@ -649,7 +828,7 @@ function CommandCenterShell() {
                       ? 'bg-amber-500/10'
                       : legalAgent?.status === 'SLEEPING'
                       ? 'bg-emerald-500/10'
-                      : 'bg-[#c6c6c6]/10'
+                      : 'bg-primary/10'
                   }`}>
                     <Gavel size={24} className={`transition-colors ${
                       legalAgent?.status === 'ACTIVE'
@@ -658,11 +837,11 @@ function CommandCenterShell() {
                         ? 'text-amber-400'
                         : legalAgent?.status === 'SLEEPING'
                         ? 'text-emerald-400'
-                        : 'text-[#c6c6c6]'
+                        : 'text-primary'
                     } ${['ACTIVE', 'THINKING'].includes(legalAgent?.status || '') ? 'animate-pulse' : ''}`} />
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="font-label-caps text-[10px] text-[#c6c6c6] opacity-60">AGENT_LEGAL_03</span>
+                    <span className="font-label-caps text-[10px] text-primary opacity-60">AGENT_LEGAL_03</span>
                     <span className={`px-1.5 py-0.5 rounded text-[8px] font-data-mono font-bold tracking-wider uppercase ${
                       legalAgent?.status === 'ACTIVE'
                         ? 'bg-red-950/40 text-red-400 border border-red-500/30 animate-pulse'
@@ -670,21 +849,21 @@ function CommandCenterShell() {
                         ? 'bg-amber-950/40 text-amber-400 border border-amber-500/30'
                         : legalAgent?.status === 'SLEEPING'
                         ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-white/5 text-[#c6c6c6] border border-white/5'
+                        : 'bg-white/5 text-primary border border-white/5'
                     }`}>
                       {legalAgent?.status || 'IDLE'}
                     </span>
                   </div>
                 </div>
                 <h3 className="font-title-md text-lg mb-2">{legalAgent?.name || "Data Protection & Legal Compliance Shield"}</h3>
-                <p className="font-body-sm text-sm text-[#cfc4c5] mb-6 min-h-[40px]">
+                <p className="font-body-sm text-sm text-on-surface-variant mb-6 min-h-[40px]">
                   {legalAgent?.lastMessage || "Ensuring regulatory adherence and automated reporting during breach events."}
                 </p>
                 <div className="flex items-center gap-3">
                   {['ACTIVE', 'THINKING'].includes(legalAgent?.status || '') ? (
                     <>
-                      <div className="w-6 h-6 rounded-full border-2 border-[#c6c6c6] border-t-transparent animate-spin" />
-                      <span className="font-data-mono text-[11px] text-[#cfc4c5] uppercase tracking-tighter">
+                      <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      <span className="font-data-mono text-[11px] text-on-surface-variant uppercase tracking-tighter">
                         {legalAgent?.status === 'ACTIVE' ? 'REPORTING MANDATES ACTIVE' : 'PARSING REGULATORY RULES'}
                       </span>
                     </>
@@ -697,8 +876,8 @@ function CommandCenterShell() {
                     </>
                   ) : (
                     <>
-                      <span className="w-2 h-2 rounded-full bg-[#c6c6c6] animate-pulse" />
-                      <span className="font-data-mono text-[11px] text-[#cfc4c5] uppercase tracking-tighter">
+                      <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      <span className="font-data-mono text-[11px] text-on-surface-variant uppercase tracking-tighter">
                         STANDING BY
                       </span>
                     </>
@@ -707,22 +886,22 @@ function CommandCenterShell() {
               </div>
 
               {/* Data Visualizer Centerpiece */}
-              <div className="md:col-span-12 glass-panel h-80 rounded-lg relative overflow-hidden flex items-center justify-center border-[#c6c6c6]/20">
+              <div className="md:col-span-12 glass-panel h-80 rounded-lg relative overflow-hidden flex items-center justify-center border-primary/20">
                 <div className="absolute inset-0 opacity-20 pointer-events-none">
                   <Image 
                     alt="Cyber Grid" 
                     fill
                     sizes="100vw"
                     style={{ objectFit: 'cover' }}
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYkywpcb7m3ioQuUXrSeoSKW099g-NT8fyRqNBKwwMjEh6qmpw_rRdyN4xl4c8HngGwfWvRGbGKWph0agpG8RD8V5oB3Bn64A9jha10hkmcXH2VXHlxD9AmfhZYvmaPciXA15bN9pfmA2jf075p4Tk-nIEtJ8nle_SpQZ0s_hRjYv6nabkf42wGmLTIRu0njJkwe_5dViYM0EG-osEBwrd4kzyDjm5Lpb1VBhGRXAR0DIZg4BzjX-n3BJ2mS4Y-yR9pZhIrfb7Vd4"
+                    src="/assets/cyber-grid-bg.svg"
                   />
                 </div>
                 <div className="relative z-10 text-center">
-                  <div className="pulse-ring absolute inset-0 -m-8 border border-[#c6c6c6]/30 rounded-full" />
-                  <div className="pulse-ring absolute inset-0 -m-16 border border-[#c6c6c6]/10 rounded-full" style={{ animationDelay: '0.5s' }} />
-                  <Radar size={60} className="text-[#c6c6c6] mb-4 mx-auto opacity-80" />
-                  <h2 className="font-label-caps text-xs tracking-[0.3em] text-[#c6c6c6]">LIVE COLLABORATIVE FEED</h2>
-                  <p className="font-data-mono text-[10px] text-[#cfc4c5] mt-2">AGENT BANDWIDTH: 4.8 TB/S | LATENCY: 0.4MS</p>
+                  <div className="pulse-ring absolute inset-0 -m-8 border border-primary/30 rounded-full" />
+                  <div className="pulse-ring absolute inset-0 -m-16 border border-primary/10 rounded-full" style={{ animationDelay: '0.5s' }} />
+                  <Radar size={60} className="text-primary mb-4 mx-auto opacity-80" />
+                  <h2 className="font-label-caps text-xs tracking-[0.3em] text-primary">LIVE COLLABORATIVE FEED</h2>
+                  <p className="font-data-mono text-[10px] text-on-surface-variant mt-2">AGENT BANDWIDTH: 4.8 TB/S | LATENCY: 0.4MS</p>
                 </div>
               </div>
             </div>
@@ -740,9 +919,9 @@ function CommandCenterShell() {
           >
             <div className="text-center max-w-3xl mx-auto mb-8">
               <h2 className="font-display-xl text-3xl md:text-5xl font-bold tracking-tight text-white mb-3">
-                Cyber Simulation <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#c6c6c6] to-[#988e90]">Deck</span>
+                Cyber Simulation <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-tertiary">Deck</span>
               </h2>
-              <p className="font-body-base text-[#cfc4c5] text-sm md:text-base">
+              <p className="font-body-base text-on-surface-variant text-sm md:text-base">
                 Select an incident scenario to trigger real-time AI agent collaboration in our Band-SDK simulated war room. Watch the C-Suite debate in real time and execute countermeasures.
               </p>
             </div>
@@ -751,48 +930,48 @@ function CommandCenterShell() {
               {SCENARIOS_LIST.map((sc) => (
                 <div
                   key={sc.id}
-                  className={`glass-panel p-6 rounded-xl relative group flex flex-col justify-between border border-[#4c4546]/30 overflow-hidden hover:border-[#c6c6c6]/50 transition-all duration-300 ${
+                  className={`glass-panel p-6 rounded-xl relative group flex flex-col justify-between border border-outline-variant/30 overflow-hidden hover:border-primary/50 transition-all duration-300 ${
                     sc.isFlagship 
-                      ? 'md:col-span-12 lg:col-span-12 border-red-500/40 bg-gradient-to-br from-[#1c1213] to-[#131313]' 
-                      : 'md:col-span-6 lg:col-span-4 bg-[#131313]/60'
+                      ? 'md:col-span-12 lg:col-span-12 border-red-500/40 bg-gradient-to-br from-red-950 to-surface-dim' 
+                      : 'md:col-span-6 lg:col-span-4 bg-surface-dim/60'
                   }`}
                 >
                   <div className="space-y-4">
                     {/* Card Top */}
                     <div className="flex justify-between items-start gap-4">
                       <div>
-                        <span className="font-data-mono text-[10px] text-[#cfc4c5]/60 block mb-1">{sc.id}</span>
-                        <h3 className="font-title-md text-lg md:text-xl font-bold text-white group-hover:text-[#00ffcc] transition-colors">{sc.title}</h3>
+                        <span className="font-data-mono text-[10px] text-on-surface-variant/60 block mb-1">{sc.id}</span>
+                        <h3 className="font-title-md text-lg md:text-xl font-bold text-white group-hover:text-accent transition-colors">{sc.title}</h3>
                       </div>
                       <span className={`px-2.5 py-0.5 border rounded-sm font-label-caps text-[9px] tracking-wider ${getSeverityStyle(sc.severity)}`}>
                         {sc.severity.toUpperCase()}
                       </span>
                     </div>
 
-                    <p className="font-body-sm text-xs text-[#cfc4c5] leading-relaxed">
+                    <p className="font-body-sm text-xs text-on-surface-variant leading-relaxed">
                       {sc.description}
                     </p>
 
                     {/* Estimated Impact */}
                     <div className="p-3 bg-white/5 rounded border border-white/5 flex items-center gap-2.5">
-                      <span className="material-symbols-outlined text-[#c6c6c6] text-sm">warning</span>
+                      <span className="material-symbols-outlined text-primary text-sm">warning</span>
                       <div>
-                        <span className="font-label-caps text-[8px] text-[#cfc4c5]/60 block">ESTIMATED IMPACT</span>
+                        <span className="font-label-caps text-[8px] text-on-surface-variant/60 block">ESTIMATED IMPACT</span>
                         <span className="font-data-mono text-[11px] text-white font-medium">{sc.impact}</span>
                       </div>
                     </div>
 
                     {/* Activated Agents */}
                     <div className="space-y-1.5">
-                      <span className="font-label-caps text-[9px] text-[#cfc4c5]/60 block tracking-wider">ACTIVATED AGENTS ({sc.agents.length})</span>
+                      <span className="font-label-caps text-[9px] text-on-surface-variant/60 block tracking-wider">ACTIVATED AGENTS ({sc.agents.length})</span>
                       <div className="flex flex-wrap gap-1.5">
                         {sc.agents.map((ag) => (
                           <span 
                             key={ag} 
                             className={`px-2 py-0.5 rounded-sm font-data-mono text-[9px] border ${
                               state.simulationRunning && state.scenarioId === sc.id
-                                ? 'bg-[#00ffcc]/10 border-[#00ffcc]/20 text-[#00ffcc]'
-                                : 'bg-white/5 border-white/10 text-[#cfc4c5]'
+                                ? 'bg-accent/10 border-accent/20 text-accent'
+                                : 'bg-white/5 border-white/10 text-on-surface-variant'
                             }`}
                           >
                             {ag}
@@ -805,39 +984,38 @@ function CommandCenterShell() {
                   {/* Card Action */}
                   <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between gap-4">
                     {state.simulationRunning && state.scenarioId === sc.id ? (
-                      <div className="flex items-center gap-2 text-[#00ffcc]">
-                        <span className="w-2 h-2 rounded-full bg-[#00ffcc] animate-ping" />
+                      <div className="flex items-center gap-2 text-accent">
+                        <span className="w-2 h-2 rounded-full bg-accent animate-ping" />
                         <span className="font-label-caps text-[10px] tracking-wider font-bold">ACTIVE SIMULATION</span>
                       </div>
                     ) : (
-                      <span className="text-[10px] font-data-mono text-[#cfc4c5]/50">Ready for dispatch</span>
+                      <span className="text-[10px] font-data-mono text-on-surface-variant/50">Ready for dispatch</span>
                     )}
                     
-                    {sc.id !== 'INC-010' ? (
-                      <button
-                        onClick={() => handleLaunch(sc.id)}
-                        className={`px-5 py-2.5 font-label-caps text-[10px] font-bold rounded-sm active:scale-95 transition-all duration-200 ${
-                          state.simulationRunning && state.scenarioId === sc.id
-                            ? 'bg-transparent border border-red-500/40 hover:bg-red-950/20 text-red-400'
-                            : sc.isFlagship
-                              ? 'bg-red-600 text-white hover:bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-                              : 'bg-[#c6c6c6] text-[#131313] hover:bg-white'
-                        }`}
-                      >
-                        {state.simulationRunning && state.scenarioId === sc.id ? 'MONITOR RUN' : 'LAUNCH SIMULATION'}
-                      </button>
-                    ) : (
-                      <div className="px-5 py-2.5 border border-white/10 rounded-sm font-label-caps text-[10px] text-white/40 tracking-wider">
-                        CLASSIFIED / LOCKED
-                      </div>
-                    )}
+                    <button
+                      onClick={() => handleLaunch(sc.id)}
+                      className={`px-5 py-2.5 font-label-caps text-[10px] font-bold rounded-sm active:scale-95 transition-all duration-200 ${
+                        state.simulationRunning && state.scenarioId === sc.id
+                          ? 'bg-transparent border border-red-500/40 hover:bg-red-950/20 text-red-400'
+                          : sc.isFlagship
+                            ? 'bg-red-600 text-white hover:bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
+                            : 'bg-primary text-on-primary hover:bg-white'
+                      }`}
+                      aria-label={state.simulationRunning && state.scenarioId === sc.id ? `Monitor ${sc.title}` : `Launch ${sc.title} scenario`}
+                    >
+                      {state.simulationRunning && state.scenarioId === sc.id
+                        ? 'MONITOR RUN'
+                        : sc.isFlagship
+                          ? 'LAUNCH PERFECT STORM'
+                          : 'LAUNCH SIMULATION'}
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
 
             {/* Live Webhook Integration Panel */}
-            <div className="mt-16 glass-panel p-8 rounded-xl border border-[#4c4546]/30 relative overflow-hidden bg-gradient-to-br from-[#161616] to-[#0f0f0f]">
+            <div className="mt-16 glass-panel p-8 rounded-xl border border-outline-variant/30 relative overflow-hidden bg-gradient-to-br from-surface-dim to-black">
               <div className="absolute top-0 right-0 p-4 font-data-mono text-[9px] text-emerald-400 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
                 INTEGRATION LISTENER ACTIVE
@@ -845,7 +1023,7 @@ function CommandCenterShell() {
               
               <div className="mb-6">
                 <h3 className="font-display-xl text-xl font-bold text-white mb-2">Enterprise Webhook Integration & Live Investigation</h3>
-                <p className="font-body-sm text-xs text-[#cfc4c5] max-w-3xl">
+                <p className="font-body-sm text-xs text-on-surface-variant max-w-3xl">
                   Connect your external monitoring infrastructure (e.g. Datadog, PagerDuty, or custom SIEM alerts) directly to our Incident Response Command Center. Any incoming webhook instantly spawns a real-time, multi-agent AI war room.
                 </p>
               </div>
@@ -855,14 +1033,14 @@ function CommandCenterShell() {
                 <div className="lg:col-span-6 space-y-4">
                   <div className="p-4 bg-white/5 rounded border border-white/5 space-y-3">
                     <p className="font-label-caps text-[10px] text-white tracking-wider font-bold">1. API WEBHOOK ENDPOINT</p>
-                    <div className="bg-[#131313] p-2.5 rounded font-data-mono text-[11px] text-[#00ffcc] select-all border border-white/5">
+                    <div className="bg-surface-dim p-2.5 rounded font-data-mono text-[11px] text-accent select-all border border-white/5">
                       POST {apiBase}/api/incident/trigger
                     </div>
                   </div>
 
                   <div className="p-4 bg-white/5 rounded border border-white/5 space-y-3">
                     <p className="font-label-caps text-[10px] text-white tracking-wider font-bold">2. PAYLOAD SCHEMA (JSON)</p>
-                    <pre className="bg-[#131313] p-3 rounded font-data-mono text-[10px] text-[#cfc4c5] overflow-x-auto border border-white/5 select-all">
+                    <pre className="bg-surface-dim p-3 rounded font-data-mono text-[10px] text-on-surface-variant overflow-x-auto border border-white/5 select-all">
 {`{
   "source": "Datadog",
   "event_type": "Data Breach",
@@ -875,7 +1053,7 @@ function CommandCenterShell() {
 
                   <div className="p-4 bg-white/5 rounded border border-white/5 space-y-3">
                     <p className="font-label-caps text-[10px] text-white tracking-wider font-bold">3. EXAMPLE CURL TRIGGER</p>
-                    <pre className="bg-[#131313] p-3 rounded font-data-mono text-[10px] text-[#cfc4c5] overflow-x-auto whitespace-pre-wrap break-all border border-white/5 select-all">
+                    <pre className="bg-surface-dim p-3 rounded font-data-mono text-[10px] text-on-surface-variant overflow-x-auto whitespace-pre-wrap break-all border border-white/5 select-all">
 {`curl -X POST ${apiBase}/api/incident/trigger \\
   -H "Content-Type: application/json" \\${apiKey ? `\n  -H "X-API-Key: ${apiKey}" \\` : ''}
   -d '{"source":"PagerDuty","event_type":"Ransomware","severity":"critical","title":"Compromised AD Controller","description":"LockBit ransom note found on AD controller."}'`}
@@ -890,11 +1068,11 @@ function CommandCenterShell() {
                     
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <label className="font-label-caps text-[9px] text-[#cfc4c5] block mb-1">Alert Source</label>
+                        <label className="font-label-caps text-[9px] text-on-surface-variant block mb-1">Alert Source</label>
                         <select 
                           value={webhookSource} 
                           onChange={(e) => setWebhookSource(e.target.value)}
-                          className="w-full bg-[#131313] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white font-data-mono focus:border-[#c6c6c6] outline-none"
+                          className="w-full bg-surface-dim border border-white/10 rounded px-2.5 py-1.5 text-xs text-white font-data-mono focus:border-primary outline-none"
                         >
                           <option value="Datadog">Datadog</option>
                           <option value="PagerDuty">PagerDuty</option>
@@ -905,11 +1083,11 @@ function CommandCenterShell() {
                       </div>
 
                       <div>
-                        <label className="font-label-caps text-[9px] text-[#cfc4c5] block mb-1">Event Type</label>
+                        <label className="font-label-caps text-[9px] text-on-surface-variant block mb-1">Event Type</label>
                         <select 
                           value={webhookType} 
                           onChange={(e) => setWebhookType(e.target.value)}
-                          className="w-full bg-[#131313] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white font-data-mono focus:border-[#c6c6c6] outline-none"
+                          className="w-full bg-surface-dim border border-white/10 rounded px-2.5 py-1.5 text-xs text-white font-data-mono focus:border-primary outline-none"
                         >
                           <option value="Data Breach">Data Breach</option>
                           <option value="Cloud Outage">Cloud Outage</option>
@@ -921,7 +1099,7 @@ function CommandCenterShell() {
                     </div>
 
                     <div className="mb-4">
-                      <label className="font-label-caps text-[9px] text-[#cfc4c5] block mb-1">Severity</label>
+                      <label className="font-label-caps text-[9px] text-on-surface-variant block mb-1">Severity</label>
                       <div className="flex gap-4">
                         {['CRITICAL', 'HIGH', 'MEDIUM'].map((sev) => (
                           <label key={sev} className="flex items-center gap-1.5 cursor-pointer text-xs font-data-mono text-white">
@@ -940,25 +1118,25 @@ function CommandCenterShell() {
                     </div>
 
                     <div className="mb-4">
-                      <label className="font-label-caps text-[9px] text-[#cfc4c5] block mb-1">Incident Title</label>
+                      <label className="font-label-caps text-[9px] text-on-surface-variant block mb-1">Incident Title</label>
                       <input 
                         type="text" 
                         value={webhookTitle} 
                         onChange={(e) => setWebhookTitle(e.target.value)}
                         placeholder="Title of alert..."
-                        className="w-full bg-[#131313] border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-white/20 focus:border-[#c6c6c6] outline-none"
+                        className="w-full bg-surface-dim border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-white/20 focus:border-primary outline-none"
                         required
                       />
                     </div>
 
                     <div>
-                      <label className="font-label-caps text-[9px] text-[#cfc4c5] block mb-1">Description</label>
+                      <label className="font-label-caps text-[9px] text-on-surface-variant block mb-1">Description</label>
                       <textarea 
                         value={webhookDesc} 
                         onChange={(e) => setWebhookDesc(e.target.value)}
                         placeholder="Detailed payload logs..."
                         rows={2}
-                        className="w-full bg-[#131313] border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-white/20 focus:border-[#c6c6c6] outline-none resize-none"
+                        className="w-full bg-surface-dim border border-white/10 rounded px-3 py-1.5 text-xs text-white placeholder-white/20 focus:border-primary outline-none resize-none"
                         required
                       />
                     </div>
@@ -972,6 +1150,7 @@ function CommandCenterShell() {
                         ? 'bg-emerald-600 text-white' 
                         : 'bg-red-600 text-white hover:bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.25)]'
                     }`}
+                    aria-label={webhookSubmitting ? 'Ingesting alert' : webhookSuccess ? 'Webhook ingested' : 'Send webhook alert'}
                   >
                     {webhookSubmitting ? 'INGESTING ALERT...' : webhookSuccess ? 'WEBHOOK INGESTED! LAUNCHING WAR ROOM...' : 'SEND WEBHOOK ALERT'}
                   </button>
@@ -981,14 +1160,14 @@ function CommandCenterShell() {
               {/* Received Webhook Logs */}
               <div className="mt-8 border-t border-white/5 pt-6">
                 <p className="font-label-caps text-[10px] text-white tracking-wider font-bold mb-4 flex items-center gap-2">
-                  <Radio size={14} className="text-[#c6c6c6]" />
+                  <Radio size={14} className="text-primary" />
                   LIVE ALERT LISTENER LOGS
                 </p>
                 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-white/5 font-label-caps text-[9px] text-[#cfc4c5]/60 pb-2">
+                      <tr className="border-b border-white/5 font-label-caps text-[9px] text-on-surface-variant/60 pb-2">
                         <th className="py-2 font-semibold">TIMESTAMP</th>
                         <th className="py-2 font-semibold">INCIDENT ID</th>
                         <th className="py-2 font-semibold">SOURCE</th>
@@ -1001,9 +1180,9 @@ function CommandCenterShell() {
                     <tbody className="divide-y divide-white/5 font-data-mono text-xs text-white">
                       {!state.receivedAlerts || state.receivedAlerts.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-xs text-[#cfc4c5] italic">
+                          <td colSpan={7} className="py-8 text-center text-xs text-on-surface-variant italic">
                             <div className="flex flex-col items-center justify-center gap-2">
-                              <span className="w-6 h-6 border-2 border-[#cfc4c5]/20 border-t-emerald-400 rounded-full animate-spin" />
+                              <span className="w-6 h-6 border-2 border-on-surface-variant/20 border-t-emerald-400 rounded-full animate-spin" />
                               Listening for incoming PagerDuty, Datadog, or Simulator webhooks...
                             </div>
                           </td>
@@ -1011,16 +1190,16 @@ function CommandCenterShell() {
                       ) : (
                         state.receivedAlerts.map((alert) => (
                           <tr key={alert.id} className="hover:bg-white/5 transition-colors">
-                            <td className="py-3 text-[11px] text-[#cfc4c5]">
+                            <td className="py-3 text-[11px] text-on-surface-variant">
                               {new Date(alert.timestamp).toLocaleTimeString()}
                             </td>
-                            <td className="py-3 text-[11px] text-[#00ffcc] font-medium">
+                            <td className="py-3 text-[11px] text-accent font-medium">
                               {alert.id}
                             </td>
                             <td className="py-3 text-[11px] font-bold text-white">
                               {alert.source}
                             </td>
-                            <td className="py-3 max-w-[250px] truncate text-xs text-[#cfc4c5]">
+                            <td className="py-3 max-w-[250px] truncate text-xs text-on-surface-variant">
                               {alert.title}
                             </td>
                             <td className="py-3 text-center">
@@ -1044,7 +1223,7 @@ function CommandCenterShell() {
                                   focusOnAlert(alert);
                                   scrollToSection('dashboard');
                                 }}
-                                className="px-3 py-1 border border-white/10 hover:border-white rounded-sm font-label-caps text-[9px] text-[#cfc4c5] hover:text-white transition-all active:scale-95"
+                                className="px-3 py-1 border border-white/10 hover:border-white rounded-sm font-label-caps text-[9px] text-on-surface-variant hover:text-white transition-all active:scale-95"
                               >
                                 FOCUS WAR ROOM
                               </button>
@@ -1070,37 +1249,37 @@ function CommandCenterShell() {
             className="space-y-6"
           >
             {/* Crisis Status Banner */}
-            <div className={`relative overflow-hidden glass-panel rounded-xl p-8 border-l-4 ${state.scenarioState === 'INITIAL' ? 'border-[#c6c6c6]/40' : 'border-red-500 glow-error'}`}>
+            <div className={`relative overflow-hidden glass-panel rounded-xl p-8 border-l-4 ${state.scenarioState === 'INITIAL' ? 'border-primary/40' : 'border-red-500 glow-error'}`}>
               <div className="scan-line" />
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     {state.scenarioState === 'INITIAL' ? (
-                      <CheckCircle size={18} className="text-[#c6c6c6]" />
+                      <CheckCircle size={18} className="text-primary" />
                     ) : (
                       <AlertCircle size={18} className="text-red-400 animate-bounce" />
                     )}
-                    <h2 className={`font-label-caps text-xs tracking-[0.2em] ${state.scenarioState === 'INITIAL' ? 'text-[#c6c6c6]' : 'text-red-400'}`}>
+                    <h2 className={`font-label-caps text-xs tracking-[0.2em] ${state.scenarioState === 'INITIAL' ? 'text-primary' : 'text-red-400'}`}>
                       {state.scenarioState === 'INITIAL' ? 'SYSTEM STATUS: OPTIMAL' : 'SEVERITY LEVEL: ALPHA-1'}
                     </h2>
                   </div>
                   <h1 className="font-headline-lg text-2xl md:text-3xl font-bold text-white mb-1">
                     {state.scenarioState === 'INITIAL' ? 'Systems Operating Normally' : state.scenarioTitle}
                   </h1>
-                  <p className="font-data-mono text-xs text-[#cfc4c5] uppercase">
+                  <p className="font-data-mono text-xs text-on-surface-variant uppercase">
                     {state.scenarioState === 'INITIAL' ? 'Awaiting scenario activation' : `Incident ID: #${state.scenarioId} | Active: ${state.scenarioState}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-12">
                   <div className="text-center">
-                    <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-1">ACTIVE INCIDENTS</p>
+                    <p className="font-label-caps text-[9px] text-on-surface-variant mb-1">ACTIVE INCIDENTS</p>
                     <p className="font-display-xl text-3xl font-bold text-white">
-                      {state.scenarioState === 'INITIAL' ? '0' : '14'}
+                      {state.activeIncidentsCount}
                     </p>
                   </div>
                   <div className="h-14 w-[1px] bg-white/10" />
                   <div className="text-center">
-                    <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-1">NODES COMPROMISED</p>
+                    <p className="font-label-caps text-[9px] text-on-surface-variant mb-1">NODES COMPROMISED</p>
                     <p className={`font-display-xl text-3xl font-bold ${state.nodesCompromised > 0 ? 'text-red-400' : 'text-white'}`}>
                       {state.scenarioState === 'INITIAL' ? '00' : String(state.nodesCompromised).padStart(2, '0')}
                     </p>
@@ -1112,14 +1291,14 @@ function CommandCenterShell() {
             {/* Main metrics + 3D Orb center */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-3 flex flex-col gap-6">
-                <div className="glass-panel p-6 rounded-xl relative group overflow-hidden border-t border-[#c6c6c6]/20">
+                <div className="glass-panel p-6 rounded-xl relative group overflow-hidden border-t border-primary/20">
                   <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-4">REVENUE AT RISK</p>
+                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-4">REVENUE AT RISK</p>
                   <p className="text-3xl font-bold text-white">{state.revenueAtRisk}</p>
                   <div className="mt-4 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-red-400 transition-all duration-1000" 
-                      style={{ width: `${state.scenarioState === 'INITIAL' ? 0 : 78}%` }} 
+                      style={{ width: `${state.riskScore}%` }} 
                     />
                   </div>
                   <p className="font-data-mono text-[10px] text-red-400 mt-2">
@@ -1127,17 +1306,17 @@ function CommandCenterShell() {
                   </p>
                 </div>
 
-                <div className="glass-panel p-6 rounded-xl relative group overflow-hidden border-t border-[#c6c6c6]/20">
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#c6c6c6]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-4">AFFECTED USERS</p>
+                <div className="glass-panel p-6 rounded-xl relative group overflow-hidden border-t border-primary/20">
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-4">AFFECTED USERS</p>
                   <p className="text-3xl font-bold text-white">{state.affectedUsers.toLocaleString()}</p>
                   <div className="mt-4 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                     <div 
-                      className="h-full bg-[#c6c6c6] transition-all duration-1000" 
-                      style={{ width: `${state.scenarioState === 'INITIAL' ? 0 : 45}%` }} 
+                      className="h-full bg-primary transition-all duration-1000" 
+                      style={{ width: `${Math.min((state.affectedUsers / 500000) * 100, 100)}%` }} 
                     />
                   </div>
-                  <p className="font-data-mono text-[10px] text-[#c6c6c6] mt-2">
+                  <p className="font-data-mono text-[10px] text-primary mt-2">
                     {state.scenarioState === 'INITIAL' ? '0 users affected' : 'STABILIZING'}
                   </p>
                 </div>
@@ -1146,7 +1325,7 @@ function CommandCenterShell() {
               {/* 3D Orb representation */}
               <div className="lg:col-span-6 glass-panel rounded-xl flex flex-col items-center justify-center relative min-h-[380px]">
                 <div className="absolute top-6 left-6">
-                  <p className="font-label-caps text-[10px] text-[#c6c6c6] tracking-wider">GLOBAL RISK INDEX</p>
+                  <p className="font-label-caps text-[10px] text-primary tracking-wider">GLOBAL RISK INDEX</p>
                 </div>
                 
                 {/* Embedded Threejs Severity Orb */}
@@ -1156,9 +1335,9 @@ function CommandCenterShell() {
                 />
 
                 <div className="absolute bottom-6 right-6 text-right">
-                  <p className="font-data-mono text-[9px] text-[#cfc4c5]">AI NEURAL CONFIDENCE</p>
-                  <p className="font-label-caps text-xs text-[#c6c6c6] font-bold">
-                    {state.scenarioState === 'INITIAL' ? '100% SECURE' : '99.84%'}
+                  <p className="font-data-mono text-[9px] text-on-surface-variant">AI NEURAL CONFIDENCE</p>
+                  <p className="font-label-caps text-xs text-primary font-bold">
+                    {state.scenarioState === 'INITIAL' ? '100% SECURE' : `${(100 - state.riskScore * 0.15).toFixed(2)}%`}
                   </p>
                 </div>
               </div>
@@ -1166,13 +1345,13 @@ function CommandCenterShell() {
               {/* Regional status */}
               <div className="lg:col-span-3 flex flex-col gap-6">
                 <div className="glass-panel p-6 rounded-xl">
-                  <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-6">REGIONAL STATUS</p>
+                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-6">REGIONAL STATUS</p>
                   <div className="space-y-4">
                     {state.regionalStatus.map((region) => (
                       <div key={region.name} className="flex justify-between items-center">
                         <span className="font-data-mono text-xs">{region.name}</span>
                         <span className={`w-3 h-3 rounded-full ${
-                          region.status === 'OPTIMAL' ? 'bg-[#c6c6c6] shadow-[0_0_8px_rgba(198,198,198,0.4)]' : 
+                          region.status === 'OPTIMAL' ? 'bg-primary shadow-[0_0_8px_rgba(198,198,198,0.4)]' : 
                           region.status === 'DEGRADED' ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 
                           'bg-red-500 shadow-[0_0_8px_rgba(255,180,171,0.6)]'
                         }`} />
@@ -1188,12 +1367,12 @@ function CommandCenterShell() {
                       width={400}
                       height={128}
                       className="w-full h-32 object-cover rounded grayscale opacity-40"
-                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZubbDnpr9V1os_VQt8QFxGPoDXNM45xBMrOt_34_LIzzRxrbIs2a9B6Mbw5-0Jg9AIfpV53rGT4kW3Oen6SUKsLKIjgeHyfOgdteMwqjeIbB_73Tj6v1H_3xfkT4_l_DcKnJZctMgoH396M-xinXT8hoOtuLo-Fbblwp_AiQXPn0ozADswfBgkKN0AgcvXl3747mOzzBjiHBr7TpAaS37ADqATZEctXFN4iMBwS8SZ0rhWLhBxS1Y-dwwQyqQ4Q8tzxdl9ubt6ls"
+                      src="/assets/world-map.svg"
                     />
                   </div>
                   <button 
                     onClick={() => scrollToSection('board_room')}
-                    className="w-full py-3 bg-[#c6c6c6] text-[#303030] font-label-caps text-xs font-bold rounded-sm hover:scale-[1.02] active:scale-95 transition-all glow-cyan"
+                    className="w-full py-3 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-sm hover:scale-[1.02] active:scale-95 transition-all glow-cyan"
                   >
                     DEPLOY COUNTERMEASURES
                   </button>
@@ -1215,7 +1394,7 @@ function CommandCenterShell() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-label-caps text-xs text-white">LIVE AGENT TELEMETRY</h3>
-                <span className="font-data-mono text-[9px] text-[#cfc4c5]">COUNT: {state.agents.length} OPERATIONAL</span>
+                <span className="font-data-mono text-[9px] text-on-surface-variant">COUNT: {state.agents.length} OPERATIONAL</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {state.agents.map((agent) => {
@@ -1278,35 +1457,35 @@ function CommandCenterShell() {
                   return (
                     <div 
                       key={agent.id} 
-                      className={`glass-panel p-6 rounded-xl border-white/5 hover:border-[#c6c6c6]/20 transition-all ${
+                      className={`glass-panel p-6 rounded-xl border-white/5 hover:border-primary/20 transition-all ${
                         isWorking ? `agent-card-working state-${statusClass}` : ''
                       }`}
                     >
                       {isWorking && <div className={`agent-scanner-line state-${statusClass}`} />}
                       <div className="relative z-10 flex justify-between items-start mb-6">
                         <div className={`p-3 rounded-lg ${
-                          agent.status === 'THINKING' ? 'bg-[#e9a13b]/10 text-[#e9a13b]' :
-                          agent.status === 'ACTIVE' || agent.status === 'SLEEPING' ? 'bg-[#00ffcc]/10 text-[#00ffcc]' :
-                          agent.status === 'DELEGATING' ? 'bg-[#b55fe6]/10 text-[#b55fe6]' :
-                          'bg-white/5 text-[#c6c6c6]'
+                          agent.status === 'THINKING' ? 'bg-amber/10 text-amber' :
+                          agent.status === 'ACTIVE' || agent.status === 'SLEEPING' ? 'bg-accent/10 text-accent' :
+                          agent.status === 'DELEGATING' ? 'bg-purple/10 text-purple' :
+                          'bg-white/5 text-primary'
                         }`}>
                           {getAgentIcon(agent.id)}
                         </div>
                         <div className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-sm ${
-                          agent.status === 'THINKING' ? 'border-[#e9a13b]/30 bg-[#e9a13b]/10 text-[#e9a13b]' :
-                          agent.status === 'ACTIVE' || agent.status === 'SLEEPING' ? 'border-[#00ffcc]/30 bg-[#00ffcc]/10 text-[#00ffcc]' :
-                          agent.status === 'DELEGATING' ? 'border-[#b55fe6]/30 bg-[#b55fe6]/10 text-[#b55fe6]' :
-                          'border-white/10 text-[#cfc4c5]'
+                          agent.status === 'THINKING' ? 'border-amber/30 bg-amber/10 text-amber' :
+                          agent.status === 'ACTIVE' || agent.status === 'SLEEPING' ? 'border-accent/30 bg-accent/10 text-accent' :
+                          agent.status === 'DELEGATING' ? 'border-purple/30 bg-purple/10 text-purple' :
+                          'border-white/10 text-on-surface-variant'
                         }`}>
                           <span className={`status-pulse-dot ${statusClass}`} />
                           <span className="font-label-caps text-[9px] tracking-wider">{agent.status}</span>
                         </div>
                       </div>
                       <h4 className="relative z-10 font-title-md font-semibold text-white mb-2">{agent.name}</h4>
-                      <p className="relative z-10 font-body-sm text-xs text-[#cfc4c5] mb-4">{agent.lastMessage}</p>
+                      <p className="relative z-10 font-body-sm text-xs text-on-surface-variant mb-4">{agent.lastMessage}</p>
                       <div className="relative z-10 flex flex-wrap gap-2">
                         {agent.tags.map((tag) => (
-                          <span key={tag} className="px-2 py-0.5 bg-white/5 rounded-sm font-data-mono text-[9px] text-[#cfc4c5]">{tag}</span>
+                          <span key={tag} className="px-2 py-0.5 bg-white/5 rounded-sm font-data-mono text-[9px] text-on-surface-variant">{tag}</span>
                         ))}
                       </div>
                     </div>
@@ -1329,23 +1508,23 @@ function CommandCenterShell() {
             {/* Left sidebar info */}
             <div className="lg:col-span-3 flex flex-col gap-6">
               <div className="glass-panel p-6 rounded-xl">
-                <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-4">INCIDENT SHELL PROFILE</p>
+                <p className="font-label-caps text-[10px] text-on-surface-variant mb-4">INCIDENT SHELL PROFILE</p>
                 <div className="flex items-center gap-4 mb-6">
-                  <div className="w-12 h-12 rounded-full overflow-hidden border border-[#c6c6c6]/30">
+                  <div className="w-12 h-12 rounded-full overflow-hidden border border-primary/30">
                     <Image 
                       alt="Commander Profile" 
                       width={48}
                       height={48}
                       className="w-full h-full object-cover" 
-                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJxl8b7KReGsBi8ki4Ykz3VApkTNzFGMiusNkkDYs4FVexrfvU2nIzus7YUdY016XY-d2IpV44D5e_E6F7JD3jiGrE38wzVD8EA8_AUQkSK4KBZBhYDUaaT6dTveoj9dFuqKLkYCe_r7lOFfjiR5j1h2sQoBYIWRFwWZJQoQuGhLSgRHwiVk-Ldaq19aiLqKu_ueBoKfWQWw4qSxyK34hNM1EtqkFECGkZgKYQ7uK22hnC5cDx6BZV-tdCSspPDHXJA6tpusyPZsM"
+                      src="/assets/commander-profile.svg"
                     />
                   </div>
                   <div>
                     <p className="font-data-mono text-sm text-white">OPERATOR_01</p>
-                    <p className="font-data-mono text-[9px] text-[#cfc4c5]">LEVEL: ALPHA_CLEARANCE</p>
+                    <p className="font-data-mono text-[9px] text-on-surface-variant">LEVEL: ALPHA_CLEARANCE</p>
                   </div>
                 </div>
-                <div className="p-3 bg-white/5 rounded border border-white/5 text-xs text-[#cfc4c5] leading-relaxed">
+                <div className="p-3 bg-white/5 rounded border border-white/5 text-xs text-on-surface-variant leading-relaxed">
                   <span className="font-bold text-white block mb-1">SYSTEM NOTE</span>
                   This console displays the real-time interaction logs orchestrated via Band SDK channels.
                 </div>
@@ -1353,19 +1532,19 @@ function CommandCenterShell() {
 
               <div className="glass-panel p-6 rounded-xl flex-grow overflow-hidden flex flex-col min-h-[300px] justify-between">
                 <div className="flex flex-col flex-grow overflow-hidden">
-                  <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-4">BAND BLOCKCHAIN AUDIT LOG</p>
+                  <p className="font-label-caps text-[10px] text-on-surface-variant mb-4">BAND BLOCKCHAIN AUDIT LOG</p>
                   <div className="flex-grow overflow-y-auto space-y-4">
                     {state.auditLogs.length === 0 ? (
-                      <p className="text-xs text-[#cfc4c5] italic">No logs recorded yet. Start simulation.</p>
+                      <p className="text-xs text-on-surface-variant italic">No logs recorded yet. Start simulation.</p>
                     ) : (
                       state.auditLogs.map((log) => (
                         <div key={log.id} className="text-xs border-b border-white/5 pb-2">
-                          <div className="flex justify-between font-data-mono text-[9px] text-[#cfc4c5] mb-1">
+                          <div className="flex justify-between font-data-mono text-[9px] text-on-surface-variant mb-1">
                             <span>{log.agent}</span>
                             <span>{log.timestamp}</span>
                           </div>
                           <p className="text-white font-medium mb-0.5">{log.action}</p>
-                          <p className="text-[#cfc4c5] text-[10px]">{log.details}</p>
+                          <p className="text-on-surface-variant text-[10px]">{log.details}</p>
                         </div>
                       ))
                     )}
@@ -1374,7 +1553,7 @@ function CommandCenterShell() {
                 {state.scenarioState !== 'INITIAL' && (
                   <div className="mt-4 p-4 rounded bg-red-950/20 border border-red-500/20">
                     <p className="font-label-caps text-[10px] text-red-400 mb-2">SYSTEM ALERT</p>
-                    <p className="font-body-sm text-[11px] text-[#cfc4c5] leading-tight">Breach in Sector 7G requires immediate attention.</p>
+                    <p className="font-body-sm text-[11px] text-on-surface-variant leading-tight">Breach in Sector 7G requires immediate attention.</p>
                   </div>
                 )}
               </div>
@@ -1386,11 +1565,11 @@ function CommandCenterShell() {
                 <div className="glass-panel glow-error p-6 flex flex-col md:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     <div className="w-3 h-3 bg-red-500 rounded-full animate-ping" />
-                    <h1 className="font-headline-lg text-lg md:text-xl font-bold text-red-400 tracking-tight">CRITICAL: RANSOMWARE BREACH DETECTED</h1>
+                    <h1 className="font-headline-lg text-lg md:text-xl font-bold text-red-400 tracking-tight">CRITICAL: {(state.scenarioTitle || 'BREACH').toUpperCase()} DETECTED</h1>
                   </div>
                   <div className="flex gap-2">
                     <div className="px-3 py-1 rounded bg-red-500/20 border border-red-500/40 text-red-400 font-data-mono text-xs">PRIORITY: OMEGA</div>
-                    <div className="px-3 py-1 rounded bg-[#353535] border border-white/10 text-white font-data-mono text-xs">ELAPSED: 00:04:21</div>
+                    <div className="px-3 py-1 rounded bg-surface-container-highest border border-white/10 text-white font-data-mono text-xs">ELAPSED: {formatElapsed(elapsedSeconds)}</div>
                   </div>
                 </div>
               )}
@@ -1399,25 +1578,25 @@ function CommandCenterShell() {
               {/* Bottom Panel: Live Timeline */}
               <div className="glass-panel rounded-xl overflow-hidden flex flex-col min-h-[250px]">
                 <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/3">
-                  <span className="font-label-caps text-xs tracking-widest text-[#c6c6c6]">REAL-TIME INCIDENT TIMELINE</span>
-                  <span className="font-data-mono text-[9px] text-[#cfc4c5]">EVENTS LOGGED: {state.timeline.length}</span>
+                  <span className="font-label-caps text-xs tracking-widest text-primary">REAL-TIME INCIDENT TIMELINE</span>
+                  <span className="font-data-mono text-[9px] text-on-surface-variant">EVENTS LOGGED: {state.timeline.length}</span>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6">
                   {state.timeline.length === 0 ? (
-                    <p className="text-sm text-[#cfc4c5] italic text-center py-6">Timeline is currently inactive. Run breach simulation.</p>
+                    <p className="text-sm text-on-surface-variant italic text-center py-6">Timeline is currently inactive. Run breach simulation.</p>
                   ) : (
                     <div className="space-y-6 relative before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-[2px] before:bg-white/10">
                       {state.timeline.map((event, idx) => (
                         <div key={idx} className="relative pl-8">
-                          <div className={`absolute left-0 top-1.5 w-4.5 h-4.5 rounded-full ${event.severity === 'critical' ? 'bg-red-500 ring-4 ring-red-500/20' : 'bg-[#c6c6c6] ring-4 ring-white/10'}`} />
+                          <div className={`absolute left-0 top-1.5 w-4.5 h-4.5 rounded-full ${event.severity === 'critical' ? 'bg-red-500 ring-4 ring-red-500/20' : 'bg-primary ring-4 ring-white/10'}`} />
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                             <div>
-                              <span className={`font-data-mono text-xs font-bold ${event.severity === 'critical' ? 'text-red-400' : 'text-[#c6c6c6]'}`}>
+                              <span className={`font-data-mono text-xs font-bold ${event.severity === 'critical' ? 'text-red-400' : 'text-primary'}`}>
                                 {event.time} - {event.title}
                               </span>
-                              <p className="font-body-sm text-xs text-[#cfc4c5] mt-0.5">{event.description}</p>
+                              <p className="font-body-sm text-xs text-on-surface-variant mt-0.5">{event.description}</p>
                             </div>
-                            <span className="px-2 py-0.5 rounded bg-white/5 text-[9px] font-data-mono text-[#c6c6c6] border border-white/10 h-fit">
+                            <span className="px-2 py-0.5 rounded bg-white/5 text-[9px] font-data-mono text-primary border border-white/10 h-fit">
                               {event.module}
                             </span>
                           </div>
@@ -1431,15 +1610,15 @@ function CommandCenterShell() {
 
             {/* Right panel: Holographic chats */}
             <div className="lg:col-span-3 glass-panel p-6 rounded-xl flex flex-col h-[780px]">
-              <p className="font-label-caps text-[10px] text-[#cfc4c5] mb-6">BAND CHANNEL EXCHANGES</p>
+              <p className="font-label-caps text-[10px] text-on-surface-variant mb-6">BAND CHANNEL EXCHANGES</p>
               <div className="flex-1 overflow-y-auto space-y-4">
                 {state.scenarioState === 'INITIAL' ? (
                   <div className="h-full flex items-center justify-center text-center p-4">
-                    <p className="text-xs text-[#cfc4c5] italic">Start the simulation to launch operational agent communication channels.</p>
+                    <p className="text-xs text-on-surface-variant italic">Start the simulation to launch operational agent communication channels.</p>
                   </div>
                 ) : allExchanges.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-center p-4">
-                    <p className="text-xs text-[#cfc4c5] italic">Monitoring SDK channels. Waiting for agent check-ins...</p>
+                    <p className="text-xs text-on-surface-variant italic">Monitoring SDK channels. Waiting for agent check-ins...</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1450,7 +1629,7 @@ function CommandCenterShell() {
                           exchange.sentiment === 'critical' ? 'border-red-500/50' :
                           exchange.sentiment === 'alert' ? 'border-yellow-500/50' :
                           exchange.sentiment === 'success' ? 'border-emerald-500/50' :
-                          'border-[#c6c6c6]'
+                          'border-primary'
                         }`}
                       >
                         <div className="flex justify-between items-start mb-2">
@@ -1458,13 +1637,13 @@ function CommandCenterShell() {
                             exchange.sentiment === 'critical' ? 'text-red-400' :
                             exchange.sentiment === 'alert' ? 'text-yellow-400' :
                             exchange.sentiment === 'success' ? 'text-emerald-400' :
-                            'text-[#c6c6c6]'
+                            'text-primary'
                           }`}>
                             {exchange.agent}
                           </span>
-                          <span className="font-data-mono text-[9px] text-[#cfc4c5]">{exchange.time}</span>
+                          <span className="font-data-mono text-[9px] text-on-surface-variant">{exchange.time}</span>
                         </div>
-                        <p className={`text-xs text-[#e2e2e2] leading-relaxed ${exchange.sentiment === 'critical' ? 'italic' : ''}`}>
+                        <p className={`text-xs text-foreground leading-relaxed ${exchange.sentiment === 'critical' ? 'italic' : ''}`}>
                           {exchange.message}
                         </p>
                       </div>
@@ -1508,16 +1687,16 @@ function CommandCenterShell() {
                   </div>
                 </div>
                 <h3 className="font-title-md font-bold text-white mb-1 text-center text-xs">Chief Information Security Officer Agent</h3>
-                <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-3">CONVICTION: 94%</p>
+                <p className="font-label-caps text-[9px] text-on-surface-variant mb-3">CONVICTION: {convictionScores['CISO']}%</p>
                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-red-500 w-[94%]" />
+                  <div className="h-full bg-red-500" style={{ width: `${convictionScores['CISO']}%` }} />
                 </div>
               </div>
 
               {/* Connector */}
               <div className="flex lg:flex-col items-center justify-center text-white/20 py-1 lg:py-0">
-                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
-                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
+                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-primary/50" /></span>
+                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-primary/50" /></span>
               </div>
 
               {/* CTO */}
@@ -1540,16 +1719,16 @@ function CommandCenterShell() {
                   </div>
                 </div>
                 <h3 className="font-title-md font-bold text-white mb-1 text-center text-xs">Chief Technology Architect Agent</h3>
-                <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-3">CONVICTION: 75%</p>
+                <p className="font-label-caps text-[9px] text-on-surface-variant mb-3">CONVICTION: {convictionScores['CTA']}%</p>
                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 w-[75%]" />
+                  <div className="h-full bg-amber-500" style={{ width: `${convictionScores['CTA']}%` }} />
                 </div>
               </div>
 
               {/* Connector */}
               <div className="flex lg:flex-col items-center justify-center text-white/20 py-1 lg:py-0">
-                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
-                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
+                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-primary/50" /></span>
+                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-primary/50" /></span>
               </div>
 
               {/* CFO */}
@@ -1572,16 +1751,16 @@ function CommandCenterShell() {
                   </div>
                 </div>
                 <h3 className="font-title-md font-bold text-white mb-1 text-center text-xs">Chief Financial Risk Strategist</h3>
-                <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-3">CONVICTION: 42%</p>
+                <p className="font-label-caps text-[9px] text-on-surface-variant mb-3">CONVICTION: {convictionScores['CFO']}%</p>
                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-cyan-400 w-[42%]" />
+                  <div className="h-full bg-cyan-400" style={{ width: `${convictionScores['CFO']}%` }} />
                 </div>
               </div>
 
               {/* Connector */}
               <div className="flex lg:flex-col items-center justify-center text-white/20 py-1 lg:py-0">
-                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
-                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-[#c6c6c6]/50" /></span>
+                <span className="lg:hidden"><ChevronDown size={20} className="animate-pulse text-primary/50" /></span>
+                <span className="hidden lg:block"><ChevronRight size={20} className="animate-pulse text-primary/50" /></span>
               </div>
 
               {/* CEO */}
@@ -1604,9 +1783,9 @@ function CommandCenterShell() {
                   </div>
                 </div>
                 <h3 className="font-title-md font-bold text-white mb-1 text-center text-xs">Chief Executive Decision Agent</h3>
-                <p className="font-label-caps text-[9px] text-[#cfc4c5] mb-3">CONVICTION: 88%</p>
+                <p className="font-label-caps text-[9px] text-on-surface-variant mb-3">CONVICTION: {convictionScores['CEO']}%</p>
                 <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-400 w-[88%]" />
+                  <div className="h-full bg-emerald-400" style={{ width: `${convictionScores['CEO']}%` }} />
                 </div>
               </div>
             </div>
@@ -1616,87 +1795,104 @@ function CommandCenterShell() {
               {/* Real-time debate chat */}
               <div className="lg:col-span-1 glass-panel flex flex-col h-[480px]">
                 <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/3">
-                  <span className="font-label-caps text-[10px] text-[#c6c6c6] tracking-wider">REAL-TIME C-SUITE DEBATE</span>
-                  <span className="flex items-center gap-1 text-[9px] text-[#cfc4c5]"><span className="w-2 h-2 rounded-full bg-[#c6c6c6] animate-pulse" /> SYNCING</span>
+                  <span className="font-label-caps text-[10px] text-primary tracking-wider">REAL-TIME C-SUITE DEBATE</span>
+                  <span className="flex items-center gap-1 text-[9px] text-on-surface-variant"><span className="w-2 h-2 rounded-full bg-primary animate-pulse" /> SYNCING</span>
                 </div>
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                  {state.debate.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-center p-4">
-                      <p className="text-xs text-[#cfc4c5] italic">Debate feed inactive. Kicking off the demo breach will trigger board arguments.</p>
-                    </div>
-                  ) : (
-                    state.debate.map((msg, idx) => (
-                      <div key={idx} className={`flex flex-col gap-1.5 ${msg.role === 'CFO' ? 'items-end' : ''}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-data-mono ${msg.sentiment === 'critical' ? 'text-red-400' : 'text-[#c6c6c6]'}`}>
-                            {msg.sender}
-                          </span>
-                          <span className="text-[9px] text-[#cfc4c5]/50">{msg.timestamp}</span>
-                        </div>
-                        <div className={`p-3 text-xs leading-relaxed max-w-[85%] ${
-                          msg.sentiment === 'critical' ? 'bg-red-500/5 border-l-2 border-red-500 text-white' : 
-                          msg.sentiment === 'alert' ? 'bg-yellow-500/5 border-l-2 border-yellow-500 text-white' :
-                          'bg-white/5 border border-white/10 rounded-sm text-[#e2e2e2]'
-                        }`}>
-                          {msg.content}
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  {debateContent}
                 </div>
+                {state.scenarioState === 'DEBATE_ACTIVE' && (
+                  <div className="p-3 border-t border-white/5 flex gap-2">
+                    <input
+                      type="text"
+                      value={operatorMessage}
+                      onChange={(e) => setOperatorMessage(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendOperatorMessage()}
+                      placeholder="Type your directive to the board..."
+                      className="flex-1 bg-surface-dim border border-white/10 rounded px-3 py-2 text-xs text-white placeholder-white/20 focus:border-primary outline-none"
+                      aria-label="Operator message input"
+                    />
+                    <button
+                      onClick={handleSendOperatorMessage}
+                      className="px-4 py-2 bg-primary text-black font-label-caps text-[10px] font-bold rounded-sm hover:bg-white transition-all active:scale-95"
+                      aria-label="Transmit operator message to board"
+                    >
+                      TRANSMIT
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Decision Matrix Table */}
               <div className="lg:col-span-2 glass-panel flex flex-col overflow-hidden min-h-[400px]">
                 <div className="p-4 border-b border-white/5 bg-white/3">
-                  <span className="font-label-caps text-[10px] text-[#c6c6c6] tracking-wider">STRATEGIC DECISION MATRIX</span>
+                  <span className="font-label-caps text-[10px] text-primary tracking-wider">STRATEGIC DECISION MATRIX</span>
                 </div>
                 <div className="overflow-x-auto flex-grow">
                   <table className="w-full text-left font-data-mono text-xs">
                     <thead>
                       <tr className="border-b border-white/10 bg-white/5">
-                        <th className="p-4 text-[#cfc4c5] font-label-caps text-[9px]">DECISION VECTOR</th>
-                        <th className="p-4 text-[#cfc4c5] font-label-caps text-[9px]">SHUTDOWN SERVICE OPTION</th>
-                        <th className="p-4 text-[#cfc4c5] font-label-caps text-[9px]">ISOLATE NETWORK OPTION</th>
+                        <th className="p-4 text-on-surface-variant font-label-caps text-[9px]">DECISION VECTOR</th>
+                        <th className="p-4 text-on-surface-variant font-label-caps text-[9px]">SHUTDOWN SERVICE OPTION</th>
+                        <th className="p-4 text-on-surface-variant font-label-caps text-[9px]">ISOLATE NETWORK OPTION</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      <tr>
-                        <td className="p-4 text-white font-bold">Security Risk Containment</td>
-                        <td className="p-4"><span className="bg-emerald-950/30 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded text-[9px]">MINIMAL RESIDUAL RISK</span></td>
-                        <td className="p-4"><span className="bg-red-950/30 text-red-400 border border-red-500/20 px-2.5 py-1 rounded text-[9px]">CRITICAL SECONDARY VECTORS</span></td>
-                      </tr>
-                      <tr>
-                        <td className="p-4 text-white font-bold">Projected Revenue Loss</td>
-                        <td className="p-4"><span className="bg-red-950/30 text-red-400 border border-red-500/20 px-2.5 py-1 rounded text-[9px]">MAXIMUM (EST: $4.2M)</span></td>
-                        <td className="p-4"><span className="bg-emerald-950/30 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded text-[9px]">MINIMAL (EST: $500K)</span></td>
-                      </tr>
-                      <tr>
-                        <td className="p-4 text-white font-bold">Recovery Window</td>
-                        <td className="p-4 text-[#cfc4c5]">48 - 72 Hours (System boot cycle)</td>
-                        <td className="p-4 text-[#cfc4c5]">2 - 6 Hours (Patch rollout)</td>
-                      </tr>
-                      <tr>
-                        <td className="p-4 text-white font-bold">GDPR Liability Exposure</td>
-                        <td className="p-4 text-emerald-400">Compliance fully secured</td>
-                        <td className="p-4 text-red-400">Ongoing breach window</td>
-                      </tr>
+                      {state.decisionMatrix.map((row, idx) => (
+                        <tr key={idx}>
+                          <td className="p-4 text-white font-bold">{row.vector}</td>
+                          <td className="p-4">
+                            {row.shutdown_note ? (
+                              <span className={`px-2.5 py-1 rounded text-[9px] border ${
+                                row.shutdown_score >= 70
+                                  ? 'bg-emerald-950/30 text-emerald-400 border-emerald-500/20'
+                                  : row.shutdown_score >= 40
+                                  ? 'bg-amber-950/30 text-amber-400 border-amber-500/20'
+                                  : 'bg-red-950/30 text-red-400 border-red-500/20'
+                              }`}>
+                                {row.shutdown_note}
+                              </span>
+                            ) : (
+                              <span className="text-on-surface-variant">{row.shutdown_note || `${row.shutdown_score}%`}</span>
+                            )}
+                          </td>
+                          <td className="p-4">
+                            {row.isolate_note ? (
+                              <span className={`px-2.5 py-1 rounded text-[9px] border ${
+                                row.isolate_score >= 70
+                                  ? 'bg-emerald-950/30 text-emerald-400 border-emerald-500/20'
+                                  : row.isolate_score >= 40
+                                  ? 'bg-amber-950/30 text-amber-400 border-amber-500/20'
+                                  : 'bg-red-950/30 text-red-400 border-red-500/20'
+                              }`}>
+                                {row.isolate_note}
+                              </span>
+                            ) : (
+                              <span className="text-on-surface-variant">{row.isolate_note || `${row.isolate_score}%`}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
                       <tr>
                         <td className="p-4 text-white font-bold">AI Recommendation weighting</td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
                             <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-[#c6c6c6] h-full w-[72%]" />
+                              <div className={`h-full transition-all duration-1000 ${
+                                state.aiRecommendation === 'SHUTDOWN' ? 'bg-primary' : 'bg-white/20'
+                              }`} style={{ width: `${state.aiConfidence || 72}%` }} />
                             </div>
-                            <span className="text-[9px]">72% Preference</span>
+                            <span className="text-[9px]">{state.aiConfidence || 72}% Preference</span>
                           </div>
                         </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
                             <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-red-500 h-full w-[28%]" />
+                              <div className={`h-full transition-all duration-1000 ${
+                                state.aiRecommendation === 'ISOLATION' ? 'bg-red-500' : 'bg-white/20'
+                              }`} style={{ width: `${100 - (state.aiConfidence || 72)}%` }} />
                             </div>
-                            <span className="text-[9px]">28% Preference</span>
+                            <span className="text-[9px]">{100 - (state.aiConfidence || 72)}% Preference</span>
                           </div>
                         </td>
                       </tr>
@@ -1705,18 +1901,20 @@ function CommandCenterShell() {
                 </div>
 
                 {/* Operational triggers */}
-                <div className="p-4 border-t border-white/5 bg-black/40 flex gap-4">
+                <div className="p-4 border-t border-white/5 bg-black/40 flex gap-4" role="group" aria-label="Decision actions">
                   <button 
                     disabled={state.scenarioState !== 'DEBATE_ACTIVE'}
                     onClick={() => deployCountermeasures('SHUTDOWN')}
-                    className="flex-1 py-3.5 bg-[#c6c6c6] text-[#303030] font-label-caps text-xs font-bold rounded-sm glow-cyan active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none uppercase"
+                    className="flex-1 py-3.5 bg-primary text-on-primary font-label-caps text-xs font-bold rounded-sm glow-cyan active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none uppercase"
+                    aria-label={`Execute ${state.shutdownLabel || 'SHUTDOWN'}`}
                   >
                     {state.shutdownLabel || 'EXECUTE SHUTDOWN'}
                   </button>
                   <button 
                     disabled={state.scenarioState !== 'DEBATE_ACTIVE'}
                     onClick={() => deployCountermeasures('ISOLATION')}
-                    className="flex-1 py-3.5 border border-[#4c4546] text-[#e2e2e2] font-label-caps text-xs font-bold rounded-sm hover:bg-white/5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none uppercase"
+                    className="flex-1 py-3.5 border border-outline-variant text-foreground font-label-caps text-xs font-bold rounded-sm hover:bg-white/5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none uppercase"
+                    aria-label={`Execute ${state.isolationLabel || 'ISOLATION'}`}
                   >
                     {state.isolationLabel || 'ATTEMPT ISOLATION'}
                   </button>
@@ -1728,47 +1926,47 @@ function CommandCenterShell() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="glass-panel p-4 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                  <Shield size={20} className="text-[#c6c6c6]" />
+                  <Shield size={20} className="text-primary" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-label-caps text-[#cfc4c5]">THREAT LEVEL</p>
+                  <p className="text-[10px] font-label-caps text-on-surface-variant">THREAT LEVEL</p>
                   <p className="font-data-mono text-xs text-red-400 font-bold">LEVEL 5: BREACH</p>
                 </div>
               </div>
 
               <div className="glass-panel p-4 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                  <Cpu size={20} className="text-[#c6c6c6]" />
+                  <Cpu size={20} className="text-primary" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-label-caps text-[#cfc4c5]">AI NEURAL LOAD</p>
-                  <p className="font-data-mono text-xs text-[#c6c6c6] font-bold">82% CAPACITY</p>
+                  <p className="text-[10px] font-label-caps text-on-surface-variant">AI NEURAL LOAD</p>
+                  <p className="font-data-mono text-xs text-primary font-bold">82% CAPACITY</p>
                 </div>
               </div>
 
               <div className="glass-panel p-4 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                  <Radar size={20} className="text-[#c6c6c6]" />
+                  <Radar size={20} className="text-primary" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-label-caps text-[#cfc4c5]">RESPONSE ASSETS</p>
-                  <p className="font-data-mono text-xs text-[#c6c6c6] font-bold">READY_STANDBY</p>
+                  <p className="text-[10px] font-label-caps text-on-surface-variant">RESPONSE ASSETS</p>
+                  <p className="font-data-mono text-xs text-primary font-bold">READY_STANDBY</p>
                 </div>
               </div>
             </div>
 
             {/* Resolved Post-Mortem Report */}
             {state.postMortem && (
-              <div className="glass-panel p-6 rounded-xl border-[#00ffcc]/30 space-y-6">
+              <div className="glass-panel p-6 rounded-xl border-accent/30 space-y-6">
                 <div className="flex justify-between items-center border-b border-white/5 pb-4">
                   <div className="flex items-center gap-2">
-                    <CheckCircle size={20} className="text-[#00ffcc]" />
+                    <CheckCircle size={20} className="text-accent" />
                     <h3 className="font-label-caps text-xs tracking-wider text-white">INCIDENT RESOLVED: POST-MORTEM REPORT</h3>
                   </div>
-                  <span className="text-[9px] font-data-mono text-[#00ffcc] bg-[#00ffcc]/10 px-2 py-0.5 rounded border border-[#00ffcc]/20">COMPLIANCE SIGNED</span>
+                  <span className="text-[9px] font-data-mono text-accent bg-accent/10 px-2 py-0.5 rounded border border-accent/20">COMPLIANCE SIGNED</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs leading-relaxed text-[#cfc4c5]">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs leading-relaxed text-on-surface-variant">
                   <div>
                     <h4 className="font-bold text-white mb-1 uppercase">Root Cause Analysis (RCA)</h4>
                     <p className="mb-4">{state.postMortem.rootCause}</p>
@@ -1793,6 +1991,7 @@ function CommandCenterShell() {
 
         {/* Section 5: Simulation Center deleted and moved up */}
 
+        </ErrorBoundary>
       </main>
     </div>
   );

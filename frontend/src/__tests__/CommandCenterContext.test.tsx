@@ -50,7 +50,7 @@ describe("CommandCenterContext", () => {
     expect(result.current.state.decisionMatrix).toHaveLength(4);
     expect(result.current.state.decisionMatrix[0].vector).toBe("Security Risk");
     expect(result.current.state.decisionMatrix[1].vector).toBe("Revenue Impact");
-    expect(result.current.state.decisionMatrix[2].vector).toBe("Recovery Time");
+    expect(result.current.state.decisionMatrix[2].vector).toBe("Recovery Window");
     expect(result.current.state.decisionMatrix[3].vector).toBe("Compliance Rating");
   });
 
@@ -268,9 +268,9 @@ describe("CommandCenterContext", () => {
     const { result } = renderHook(() => useCommandCenter(), { wrapper });
 
     const decisionMatrix = result.current.state.decisionMatrix;
-    expect(decisionMatrix[0]).toEqual({ vector: "Security Risk", shutdownScore: 100, isolateScore: 28 });
-    expect(decisionMatrix[1]).toEqual({ vector: "Revenue Impact", shutdownScore: 10, isolateScore: 85 });
-    expect(decisionMatrix[2]).toEqual({ vector: "Recovery Time", shutdownScore: 30, isolateScore: 90 });
-    expect(decisionMatrix[3]).toEqual({ vector: "Compliance Rating", shutdownScore: 95, isolateScore: 40 });
+    expect(decisionMatrix[0]).toMatchObject({ vector: "Security Risk", shutdown_score: 95, isolate_score: 30 });
+    expect(decisionMatrix[1]).toMatchObject({ vector: "Revenue Impact", shutdown_score: 10, isolate_score: 85 });
+    expect(decisionMatrix[2]).toMatchObject({ vector: "Recovery Window", shutdown_score: 30, isolate_score: 90 });
+    expect(decisionMatrix[3]).toMatchObject({ vector: "Compliance Rating", shutdown_score: 95, isolate_score: 40 });
   });
 });
